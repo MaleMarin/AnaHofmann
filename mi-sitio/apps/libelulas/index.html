@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Libélulas Vectoriales</title>
+<style>
+*{margin:0;padding:0;overflow:hidden}
+body{background:#060d1a;font-family:'Courier New',monospace}
+canvas{display:block;cursor:crosshair}
+.title{position:fixed;top:28px;left:50%;transform:translateX(-50%);color:rgba(220,230,255,0.35);font-size:12px;letter-spacing:5px;text-transform:uppercase;pointer-events:none;font-weight:300}
+.info{position:fixed;bottom:20px;left:20px;color:rgba(200,215,255,0.5);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;pointer-events:none;line-height:1.9}
+.info span{display:block}
+.info .sep{opacity:0.25;margin:8px 0}
+</style>
+</head>
+<body>
+<div class="title">Libélulas Vectoriales</div>
+<div class="info">
+  <span style="color:#00f9d4">Libélula 1: Respiración Orgánica</span>
+  <span style="color:#ff6b35">Libélula 2: Forma Estática</span>
+  <span style="color:#b4ff00">Libélula 3: Pulso Rítmico</span>
+  <span style="color:#df40ff">Libélula 4: Flujo Fluido</span>
+  <span class="sep">─────────────</span>
+  <span>Clic → Explosión global</span>
+  <span>1-4 → Explotar libélula</span>
+  <span>M → Activar/desactivar transformación</span>
+  <span>T → Transformación masiva</span>
+  <span>S → Guardar imagen</span>
+  <span>R → Reiniciar</span>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js"></script>
+<script>
+// ─── PALETAS ────────────────────────────────────────────────────
+const PALETTES = {
+  d1: { primary:[0,249,212],   secondary:[0,200,255],  accent:[120,255,240], gold:[0,80,180],   extra:[0,255,180] },
+  d2: { primary:[255,107,53],  secondary:[255,60,20],  accent:[255,160,80],  gold:[200,40,0],   extra:[255,200,100] },
+  d3: { primary:[180,255,0],   secondary:[120,255,50], accent:[220,255,120], gold:[60,180,80],  extra:[255,255,150] },
+  d4: { primary:[220,60,255],  secondary:[160,0,255],  accent:[255,100,255], gold:[80,0,200],   extra:[255,180,255] },
+};
+
+const BG = [6,13,26];
+
+// ─── FORMA DE LIBÉLULA (puntos paramétricos, con orientación) ─────
+// Genera la libélula centrada en (0,0), cabeza apuntando hacia -x,
+// luego rota toda la forma por `rot` radianes y la traslada a (cx,cy).
+function dragonfly(cx, cy, scale, rot = 0) {
+  const local = [];
+  const s = scale;
+
+  // === ABDOMEN: largo, delgado y segmentado (tórax → cola) ===
+  for (let t = 0; t <= 1; t += 0.010) {
+    const bx = -s * 0.04 + t * s * 0.62;
+    const seg = sin(t * PI * 9 + 0.2);
+    const taper = 1 - t * 0.62;
+    const r = s * 0.036 * taper * (0.75 + 0.35 * abs(seg));
+    for (let i = 0; i < 5; i++) {
+      const a = random(TWO_PI);
+      local.push({
+        x: bx + random(-r * 0.25, r * 0.25),
+        y: cos(a) * r * 0.9 + random(-0.3, 0.3)
+      });
+    }
+  }
+  // Cercos terminales (puntita de la cola)
+  for (let i = 0; i < 20; i++) {
+    local.push({
+      x: s * 0.58 + random(-s * 0.015, s * 0.025),
+      y: random(-s * 0.012, s * 0.012)
+    });
+  }
+
+  // === TÓRAX: bloque robusto donde se anclan alas y patas ===
+  for (let a = 0; a < TWO_PI; a += 0.07) {
+    for (let r = 0; r < s * 0.085; r += s * 0.010) {
+      local.push({
+        x: -s * 0.13 + cos(a) * r * 0.85,
+        y: sin(a) * r * 0.92
+      });
+    }
+  }
+
+  // === CABEZA: redonda, compacta ===
+  for (let a = 0; a < TWO_PI; a += 0.10) {
+    for (let r = 0; r < s * 0.066; r += s * 0.012) {
+      local.push({
+        x: -s * 0.30 + cos(a) * r * 0.92,
+        y: sin(a) * r * 0.88
+      });
+    }
+  }
+
+  // === OJOS compuestos: grandes, a los lados de la cabeza ===
+  for (const ey of [-s * 0.058, s * 0.058]) {
+    for (let a = 0; a < TWO_PI; a += 0.11) {
+      for (let r = 0; r < s * 0.055; r += s * 0.011) {
+        local.push({
+          x: -s * 0.34 + cos(a) * r * 0.78,
+          y: ey + sin(a) * r
+        });
+      }
+    }
+  }
+
+  // === ALAS: 4 alas membranosas perpendiculares al cuerpo ===
+  // Par delantero (forewings) y trasero (hindwings) ligeramente desplazados
+  const wingConfigs = [
+    { rootX: -0.16, side: -1, length: 0.52, width: 0.13, tilt: -0.20 }, // forewing sup-izq
+    { rootX: -0.16, side:  1, length: 0.52, width: 0.13, tilt:  0.20 }, // forewing sup-der
+    { rootX: -0.04, side: -1, length: 0.48, width: 0.17, tilt: -0.12 }, // hindwing inf-izq
+    { rootX: -0.04, side:  1, length: 0.48, width: 0.17, tilt:  0.12 }, // hindwing inf-der
+  ];
+
+  for (const w of wingConfigs) {
+    const rootX = w.rootX * s;
+    const wLen = w.length * s;
+    const wWid = w.width * s;
+    // Eje del ala (perpendicular al cuerpo, ligeramente inclinado por w.tilt)
+    const dirX = sin(w.tilt);
+    const dirY = cos(w.tilt) * w.side;
+    const perpX = cos(w.tilt);
+    const perpY = -sin(w.tilt) * w.side;
+
+    // Membrana: relleno con puntos finos, más densos hacia el borde
+    for (let i = 0; i < 450; i++) {
+      const t = random();
+      const u = (random() - 0.5) * 2;
+      const shape = sin(t * PI * 0.92 + 0.08);
+      const halfW = wWid * 0.5 * shape;
+      const along = t * wLen;
+      const across = u * halfW;
+      const lx = along * dirX + across * perpX;
+      const ly = along * dirY + across * perpY;
+      const density = 0.10 + abs(u) * 0.55 + (random() < 0.04 ? 0.5 : 0);
+      if (random() < density) {
+        local.push({ x: rootX + lx, y: ly });
+      }
+    }
+
+    // Borde de ataque (frontal, más marcado)
+    for (let t = 0; t < 1; t += 0.012) {
+      const shape = sin(t * PI * 0.92 + 0.08);
+      const halfW = wWid * 0.5 * shape;
+      const along = t * wLen;
+      local.push({
+        x: rootX + along * dirX + halfW * perpX + random(-0.3, 0.3),
+        y:         along * dirY + halfW * perpY + random(-0.3, 0.3)
+      });
+    }
+
+    // Borde de salida (trasero)
+    for (let t = 0; t < 1; t += 0.020) {
+      const shape = sin(t * PI * 0.92 + 0.08);
+      const halfW = wWid * 0.5 * shape;
+      const along = t * wLen;
+      local.push({
+        x: rootX + along * dirX - halfW * perpX + random(-0.3, 0.3),
+        y:         along * dirY - halfW * perpY + random(-0.3, 0.3)
+      });
+    }
+
+    // Vena longitudinal central
+    for (let t = 0; t < 1; t += 0.025) {
+      const along = t * wLen;
+      local.push({
+        x: rootX + along * dirX + random(-0.4, 0.4),
+        y:         along * dirY + random(-0.4, 0.4)
+      });
+    }
+
+    // Venas transversales (nervaduras)
+    for (let t = 0.12; t < 0.96; t += 0.10) {
+      const shape = sin(t * PI * 0.92 + 0.08);
+      const halfW = wWid * 0.5 * shape;
+      const along = t * wLen;
+      for (let u = -1; u <= 1; u += 0.08) {
+        if (random() < 0.35) {
+          local.push({
+            x: rootX + along * dirX + u * halfW * perpX,
+            y:         along * dirY + u * halfW * perpY
+          });
+        }
+      }
+    }
+  }
+
+  // === ANTENAS: muy finas, hacia adelante ===
+  for (let t = 0; t < 1; t += 0.05) {
+    local.push({
+      x: -s * (0.38 + t * 0.11) + random(-0.4, 0.4),
+      y: -s * 0.014 - t * s * 0.022 + random(-0.4, 0.4)
+    });
+    local.push({
+      x: -s * (0.38 + t * 0.11) + random(-0.4, 0.4),
+      y:  s * 0.014 + t * s * 0.022 + random(-0.4, 0.4)
+    });
+  }
+
+  // === PATAS: 6 finas, salen del tórax hacia abajo y los lados ===
+  for (let i = 0; i < 6; i++) {
+    const baseX = -s * 0.18 + (i % 3) * s * 0.06;
+    const side = i < 3 ? -1 : 1;
+    for (let t = 0; t < 1; t += 0.07) {
+      local.push({
+        x: baseX + t * s * 0.04 + random(-0.4, 0.4),
+        y: side * (s * 0.07 + t * s * 0.06) + random(-0.4, 0.4)
+      });
+    }
+  }
+
+  // === ROTAR toda la forma y trasladar a (cx, cy) ===
+  const cr = cos(rot), sr = sin(rot);
+  return local.map(p => ({
+    x: cx + p.x * cr - p.y * sr,
+    y: cy + p.x * sr + p.y * cr
+  }));
+}
+
+// ─── VARIABLES GLOBALES ──────────────────────────────────────────
+let dragonflies = [];
+let isExploding = false;
+let explosionForce = 0;
+let morphingEnabled = true;
+const NUM_PARTICLES = 2800;
+const MORPHING_SPEED = 0.0022;
+// Velocidad acelerada cuando se pulsa la tecla T (transformacion masiva).
+const T_MORPH_SPEED = 0.020;
+// Amplitud del vuelo orgánico de cada libélula (% del canvas).
+const FLIGHT_AMP_X = 0.045;
+const FLIGHT_AMP_Y = 0.030;
+
+// ─── CONFIGURACIÓN DE LAS 4 LIBÉLULAS ───────────────────────────
+// rot en radianes: cada una mira hacia una dirección distinta
+const CONFIGS = [
+  { id:1, palette:'d1', behavior:'organic', pos:{x:0.34, y:0.36}, scale:0.36, rot:  0.55 },  // ↘ diagonal abajo-derecha
+  { id:2, palette:'d2', behavior:'static',  pos:{x:0.66, y:0.32}, scale:0.34, rot:  2.40 },  // ↙ diagonal abajo-izquierda
+  { id:3, palette:'d3', behavior:'pulse',   pos:{x:0.32, y:0.68}, scale:0.34, rot: -0.70 },  // ↗ diagonal arriba-derecha
+  { id:4, palette:'d4', behavior:'flow',    pos:{x:0.68, y:0.66}, scale:0.33, rot: -2.30 },  // ↖ diagonal arriba-izquierda
+];
+
+// ─── SETUP ───────────────────────────────────────────────────────
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  noLoop();
+  colorMode(RGB);
+
+  for (const cfg of CONFIGS) {
+    const baseCx = width  * cfg.pos.x;
+    const baseCy = height * cfg.pos.y;
+    const sc = min(width, height) * cfg.scale;
+    // Generamos los puntos relativos al centro (cx=cy=0) para poder mover
+    // la libelula despues sumando un offset de "vuelo" sin recalcular nada.
+    const pts = dragonfly(0, 0, sc, cfg.rot);
+
+    const df = {
+      id: cfg.id,
+      palette: PALETTES[cfg.palette],
+      behavior: cfg.behavior,
+      pos: cfg.pos,
+      scale: sc,
+      baseCx, baseCy,
+      cx: baseCx, cy: baseCy,
+      flightSeedX: random(10000),
+      flightSeedY: random(10000),
+      pixels: pts.map(p => ({ x: p.x, y: p.y })),
+      particles: [],
+      time: random(1000),
+      pulse: 1,
+    };
+
+    for (let i = 0; i < NUM_PARTICLES; i++) {
+      const rp = random(df.pixels);
+      df.particles.push(new Particle(rp.x, rp.y, df));
+    }
+
+    dragonflies.push(df);
+  }
+
+  loop();
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+  // Recolocar las libelulas si se cambia el tamaño de la ventana.
+  for (let i = 0; i < dragonflies.length; i++) {
+    const cfg = CONFIGS[i];
+    if (!cfg) continue;
+    dragonflies[i].baseCx = width  * cfg.pos.x;
+    dragonflies[i].baseCy = height * cfg.pos.y;
+  }
+}
+
+// ─── DRAW ────────────────────────────────────────────────────────
+function draw() {
+  fill(...BG, 18);
+  noStroke();
+  rect(0, 0, width, height);
+
+  // Grain sutil
+  for (let i = 0; i < 300; i++) {
+    stroke(200, 220, 255, random(2, 8));
+    strokeWeight(random(0.3, 0.8));
+    point(random(width), random(height));
+  }
+
+  // Actualizamos el centro de cada libélula con un pequeño vuelo orgánico.
+  for (const df of dragonflies) {
+    df.time += 0.01;
+    if (df.behavior === 'pulse')   df.pulse = 1 + sin(df.time * 2.2) * 0.14;
+    else if (df.behavior === 'flow')    df.pulse = 1 + sin(df.time * 0.6) * 0.07;
+    else if (df.behavior === 'organic') df.pulse = 1 + sin(df.time * 1.4) * 0.04;
+    else df.pulse = 1;
+
+    // Drift de vuelo: Perlin lento -> movimiento de "hovering".
+    const flightT = df.time * 0.55;
+    const nxv = noise(df.flightSeedX, flightT) - 0.5;
+    const nyv = noise(df.flightSeedY, flightT + 100) - 0.5;
+    df.cx = df.baseCx + nxv * width  * FLIGHT_AMP_X * 2;
+    df.cy = df.baseCy + nyv * height * FLIGHT_AMP_Y * 2;
+  }
+
+  for (const df of dragonflies) {
+    for (const p of df.particles) {
+      p.update(df);
+      p.draw(df);
+    }
+  }
+
+  if (isExploding) {
+    explosionForce *= 0.92;
+    if (explosionForce < 0.4) { isExploding = false; explosionForce = 0; }
+  }
+}
+
+// ─── PARTÍCULA ───────────────────────────────────────────────────
+class Particle {
+  constructor(rx, ry, df) {
+    // Coordenadas relativas al centro de la libelula (para que "vuele" entera).
+    this.relOx = rx;
+    this.relOy = ry;
+    this.dfId = df.id;
+    const startAbs = this.absOrigin();
+    this.x  = startAbs.x + randomGaussian(0, 25);
+    this.y  = startAbs.y + randomGaussian(0, 25);
+    this.tx = startAbs.x; this.ty = startAbs.y;
+    this.vx = 0; this.vy = 0;
+    this.behavior = df.behavior;
+    this.nx = random(1000); this.ny = random(1000);
+    this.alpha = random(35, 110);
+    this.len   = random(2, 9);
+    this.exVx = 0; this.exVy = 0;
+    this.exploded = false;
+    this.isMorphing = false;
+    this.morphProgress = 0;
+    this.morphSpeed = MORPHING_SPEED;
+    this.morphCommit = false;
+    this.morphTargetDf = null;
+    // Coords relativas al df objetivo al iniciar el morph.
+    this.morphTargetRelX = 0;
+    this.morphTargetRelY = 0;
+    // Coords absolutas de origen al iniciar el morph (no cambian al moverse el df).
+    this.morphSrcDfId = df.id;
+    this.morphSrcRelX = rx;
+    this.morphSrcRelY = ry;
+  }
+
+  ownDf() {
+    return dragonflies.find(d => d.id === this.dfId) || dragonflies[0];
+  }
+
+  absOrigin() {
+    const d = this.ownDf();
+    return { x: d.cx + this.relOx, y: d.cy + this.relOy };
+  }
+
+  startMorph(target, speed, commit) {
+    if (!target || !target.pixels.length) return;
+    const p = random(target.pixels);
+    this.isMorphing = true;
+    this.morphProgress = 0;
+    this.morphSpeed = speed;
+    this.morphCommit = commit;
+    this.morphTargetDf = target;
+    this.morphTargetRelX = p.x;
+    this.morphTargetRelY = p.y;
+    this.morphSrcDfId = this.dfId;
+    this.morphSrcRelX = this.relOx;
+    this.morphSrcRelY = this.relOy;
+  }
+
+  update(df) {
+    // Morphing aleatorio sutil (independiente de T).
+    if (morphingEnabled && !this.isMorphing && random() < 0.0008) {
+      const others = dragonflies.filter(d => d.id !== this.dfId);
+      if (others.length) this.startMorph(random(others), MORPHING_SPEED, random() < 0.08);
+    }
+
+    // Centro absoluto actual (sigue al vuelo de la libelula).
+    const ownDf = this.ownDf();
+    const origin = { x: ownDf.cx + this.relOx, y: ownDf.cy + this.relOy };
+
+    if (this.isMorphing) {
+      this.morphProgress += this.morphSpeed;
+      const e = this.morphProgress < 0.5
+        ? 4 * pow(this.morphProgress, 3)
+        : 1 - pow(-2 * this.morphProgress + 2, 3) / 2;
+      // Origen vivo (la libelula de origen tambien se mueve).
+      const srcDf = dragonflies.find(d => d.id === this.morphSrcDfId) || ownDf;
+      const sx = srcDf.cx + this.morphSrcRelX;
+      const sy = srcDf.cy + this.morphSrcRelY;
+      const tx = this.morphTargetDf.cx + this.morphTargetRelX;
+      const ty = this.morphTargetDf.cy + this.morphTargetRelY;
+      this.tx = lerp(sx, tx, e);
+      this.ty = lerp(sy, ty, e);
+      if (this.morphProgress >= 1) {
+        this.isMorphing = false;
+        this.morphProgress = 0;
+        if (this.morphCommit) {
+          this.relOx = this.morphTargetRelX;
+          this.relOy = this.morphTargetRelY;
+          this.behavior = this.morphTargetDf.behavior;
+          this.dfId = this.morphTargetDf.id;
+        }
+      }
+    }
+
+    // Target según comportamiento (cuando no esta morphing).
+    let targetX = this.tx;
+    let targetY = this.ty;
+
+    if (!this.isMorphing) {
+      if (this.behavior === 'pulse') {
+        const cx = ownDf.cx, cy = ownDf.cy;
+        const a  = atan2(origin.y - cy, origin.x - cx);
+        const d  = dist(origin.x, origin.y, cx, cy);
+        targetX = cx + cos(a) * d * ownDf.pulse;
+        targetY = cy + sin(a) * d * ownDf.pulse;
+      } else if (this.behavior === 'flow') {
+        targetX = origin.x + sin(this.nx + frameCount * 0.018) * 12;
+        targetY = origin.y + cos(this.ny + frameCount * 0.013) * 9;
+      } else if (this.behavior === 'organic') {
+        targetX = origin.x + sin(this.nx * 0.5 + frameCount * 0.008) * 5;
+        targetY = origin.y + cos(this.ny * 0.5 + frameCount * 0.006) * 4;
+      } else {
+        // static: target = origen vivo (sigue al vuelo).
+        targetX = origin.x;
+        targetY = origin.y;
+      }
+    }
+
+    const force = this.behavior === 'static' ? 0.055
+                : this.behavior === 'pulse'  ? 0.042
+                : this.behavior === 'flow'   ? 0.036 : 0.022;
+    const damp  = this.behavior === 'static' ? 0.88
+                : this.behavior === 'pulse'  ? 0.87
+                : this.behavior === 'flow'   ? 0.89 : 0.84;
+
+    this.vx += (targetX - this.x) * force;
+    this.vy += (targetY - this.y) * force;
+
+    const ns = this.behavior === 'static' ? 0.0008 : 0.0025;
+    this.vx += (noise(this.nx + frameCount * 0.009) - 0.5) * ns * 55;
+    this.vy += (noise(this.ny + frameCount * 0.009) - 0.5) * ns * 55;
+
+    // Explosión
+    if (isExploding && !this.exploded) {
+      const a = atan2(this.y - mouseY, this.x - mouseX);
+      const d = dist(this.x, this.y, mouseX, mouseY);
+      const f = map(d, 0, 500, explosionForce, explosionForce * 0.35);
+      this.exVx = cos(a) * f;
+      this.exVy = sin(a) * f;
+      this.exploded = true;
+    }
+    this.vx += this.exVx; this.vy += this.exVy;
+    this.exVx *= 0.90; this.exVy *= 0.90;
+    if (!isExploding) this.exploded = false;
+
+    this.vx *= damp; this.vy *= damp;
+    this.x  += this.vx; this.y  += this.vy;
+  }
+
+  draw(df) {
+    let angle = atan2(this.vy, this.vx);
+    const md = dist(this.x, this.y, mouseX, mouseY);
+    const mi = constrain(map(md, 0, 280, 1, 0), 0, 1);
+    angle = lerp(angle, atan2(mouseY - this.y, mouseX - this.x), mi * 0.65);
+
+    const hl = this.len / 2;
+    const x1 = this.x - cos(angle) * hl;
+    const y1 = this.y - sin(angle) * hl;
+    const x2 = this.x + cos(angle) * hl;
+    const y2 = this.y + sin(angle) * hl;
+
+    const c = random();
+    let col;
+    if      (c < 0.07) col = [...df.palette.extra,     this.alpha * 0.55];
+    else if (c < 0.18) col = [...df.palette.gold,      this.alpha * 0.65];
+    else if (c < 0.38) col = [...df.palette.accent,    this.alpha];
+    else if (c < 0.62) col = [...df.palette.secondary, this.alpha * 0.85];
+    else               col = [...df.palette.primary,   this.alpha * 0.75];
+
+    stroke(...col);
+    strokeWeight(random(0.25, 0.85));
+    line(x1, y1, x2, y2);
+  }
+}
+
+// ─── EVENTOS ─────────────────────────────────────────────────────
+function mousePressed() {
+  isExploding = true;
+  explosionForce = random(38, 60);
+}
+
+function keyPressed() {
+  if (key === 's' || key === 'S') saveCanvas('libelulas', 'png');
+
+  if (key === 'r' || key === 'R') {
+    for (const df of dragonflies) {
+      df.particles = [];
+      for (let i = 0; i < NUM_PARTICLES; i++) {
+        const p = random(df.pixels);
+        df.particles.push(new Particle(p.x, p.y, df));
+      }
+    }
+  }
+
+  if (key >= '1' && key <= '4') {
+    const idx = parseInt(key) - 1;
+    if (idx < dragonflies.length) {
+      for (const p of dragonflies[idx].particles) {
+        const a = atan2(p.y - mouseY, p.x - mouseX);
+        const d = dist(p.x, p.y, mouseX, mouseY);
+        const f = map(d, 0, 400, 50, 12);
+        p.exVx = cos(a) * f;
+        p.exVy = sin(a) * f;
+        p.exploded = true;
+      }
+    }
+  }
+
+  if (key === 'm' || key === 'M') morphingEnabled = !morphingEnabled;
+
+  if (key === 't' || key === 'T') {
+    // Transformacion masiva: cada particula salta a otra libelula a una
+    // velocidad mucho mayor y se queda alli (commit = true).
+    for (const df of dragonflies) {
+      for (const p of df.particles) {
+        if (!p.isMorphing) {
+          const others = dragonflies.filter(d => d.id !== p.dfId);
+          if (others.length) {
+            p.startMorph(random(others), T_MORPH_SPEED, true);
+          }
+        }
+      }
+    }
+  }
+}
+</script>
+</body>
+</html>

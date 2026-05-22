@@ -18,13 +18,12 @@ h1{font-size:clamp(1.5rem,4vw,2rem);font-weight:500;letter-spacing:-.02em;margin
 .section-label{font-size:11px;color:var(--txt2);letter-spacing:.1em;text-transform:uppercase;margin-bottom:20px;padding-bottom:8px;border-bottom:1px solid var(--border)}
 .grid{display:grid;gap:16px}
 @media(min-width:560px){.grid{grid-template-columns:repeat(2,1fr)}}
-.card{display:block;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:20px 22px;transition:border-color .2s ease,background .2s ease,transform .2s ease}
+.card{display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:22px 24px;transition:border-color .2s ease,background .2s ease,transform .2s ease}
 .card:hover{border-color:#3d3d42;background:#1a1a1d;transform:translateY(-2px)}
-.card-tag{font-size:10px;color:var(--accent);background:var(--accent-dim);display:inline-block;padding:3px 8px;border-radius:3px;margin-bottom:12px;letter-spacing:.06em}
-.card-title{font-size:15px;font-weight:500;margin-bottom:6px}
-.card-desc{font-size:12px;color:var(--txt2);line-height:1.55;margin-bottom:14px}
-.card-link{font-size:11px;color:var(--accent)}
-.card-link::after{content:" →";opacity:.7}
+.card-desc{font-size:12px;color:var(--txt2);line-height:1.55;margin-bottom:18px}
+.card-btn{display:inline-flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px;font-weight:500;color:var(--accent);background:var(--accent-dim);border:1px solid rgba(126,184,255,.25);padding:10px 14px;border-radius:6px;letter-spacing:.01em;transition:background .2s ease,border-color .2s ease,color .2s ease}
+.card:hover .card-btn{background:rgba(126,184,255,.22);border-color:rgba(126,184,255,.55);color:#cfe2ff}
+.card-btn::after{content:"→";opacity:.85;font-size:14px}
 footer{margin-top:64px;padding-top:24px;border-top:1px solid var(--border);font-size:11px;color:var(--txt2)}
 </style>
 </head>
@@ -37,13 +36,15 @@ footer{margin-top:64px;padding-top:24px;border-top:1px solid var(--border);font-
   </header>
 
   <section>
-    <p class="section-label">proyectos</p>
+    <p class="section-label">arte generativa</p>
     <div class="grid">
       <a class="card" href="/apps/motor-de-chroma/">
-        <span class="card-tag">p5.js</span>
-        <h2 class="card-title">Motor de Chroma</h2>
         <p class="card-desc">Generador de composiciones con capas, rotación y paletas inspiradas en artistas históricos.</p>
-        <span class="card-link">abrir app</span>
+        <span class="card-btn">Motor de Chroma</span>
+      </a>
+      <a class="card" href="/apps/libelulas/">
+        <p class="card-desc">Cuatro libélulas hechas de partículas con morphing, pulsos y explosiones al hacer clic.</p>
+        <span class="card-btn">Libélulas Vectoriales</span>
       </a>
     </div>
   </section>
