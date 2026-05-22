@@ -103,13 +103,28 @@ function dragonfly(cx, cy, scale, rot = 0) {
   }
 
   // === ALAS: 4 alas membranosas perpendiculares al cuerpo ===
-  // Par delantero (forewings) y trasero (hindwings) ligeramente desplazados
+  // Par delantero (forewings) y trasero (hindwings) ligeramente desplazados.
+  // `idx` se guarda en cada punto del ala para que despues podamos aletear
+  // cada ala independientemente (las delanteras y traseras con un pequeño
+  // desfase, como en libelulas reales).
   const wingConfigs = [
-    { rootX: -0.16, side: -1, length: 0.52, width: 0.13, tilt: -0.20 }, // forewing sup-izq
-    { rootX: -0.16, side:  1, length: 0.52, width: 0.13, tilt:  0.20 }, // forewing sup-der
-    { rootX: -0.04, side: -1, length: 0.48, width: 0.17, tilt: -0.12 }, // hindwing inf-izq
-    { rootX: -0.04, side:  1, length: 0.48, width: 0.17, tilt:  0.12 }, // hindwing inf-der
+    { idx: 0, rootX: -0.16, side: -1, length: 0.52, width: 0.13, tilt: -0.20 }, // forewing sup-izq
+    { idx: 1, rootX: -0.16, side:  1, length: 0.52, width: 0.13, tilt:  0.20 }, // forewing sup-der
+    { idx: 2, rootX: -0.04, side: -1, length: 0.48, width: 0.17, tilt: -0.12 }, // hindwing inf-izq
+    { idx: 3, rootX: -0.04, side:  1, length: 0.48, width: 0.17, tilt:  0.12 }, // hindwing inf-der
   ];
+
+  // Helper: agrega un punto con metadata de ala (para aletear despues).
+  // `lx`, `ly` son las coordenadas locales del punto **relativas a la raiz
+  // del ala** (rootX, 0) y antes de rotar el cuerpo. La rotacion del cuerpo
+  // se aplica al final de la funcion, igual que para el resto de puntos.
+  const pushWing = (wingCfg, rootX, lx, ly) => {
+    local.push({
+      x: rootX + lx,
+      y: ly,
+      wing: { idx: wingCfg.idx, side: wingCfg.side, rootX, lx, ly }
+    });
+  };
 
   for (const w of wingConfigs) {
     const rootX = w.rootX * s;
@@ -133,7 +148,7 @@ function dragonfly(cx, cy, scale, rot = 0) {
       const ly = along * dirY + across * perpY;
       const density = 0.10 + abs(u) * 0.55 + (random() < 0.04 ? 0.5 : 0);
       if (random() < density) {
-        local.push({ x: rootX + lx, y: ly });
+        pushWing(w, rootX, lx, ly);
       }
     }
 
@@ -142,10 +157,9 @@ function dragonfly(cx, cy, scale, rot = 0) {
       const shape = sin(t * PI * 0.92 + 0.08);
       const halfW = wWid * 0.5 * shape;
       const along = t * wLen;
-      local.push({
-        x: rootX + along * dirX + halfW * perpX + random(-0.3, 0.3),
-        y:         along * dirY + halfW * perpY + random(-0.3, 0.3)
-      });
+      pushWing(w, rootX,
+        along * dirX + halfW * perpX + random(-0.3, 0.3),
+        along * dirY + halfW * perpY + random(-0.3, 0.3));
     }
 
     // Borde de salida (trasero)
@@ -153,19 +167,17 @@ function dragonfly(cx, cy, scale, rot = 0) {
       const shape = sin(t * PI * 0.92 + 0.08);
       const halfW = wWid * 0.5 * shape;
       const along = t * wLen;
-      local.push({
-        x: rootX + along * dirX - halfW * perpX + random(-0.3, 0.3),
-        y:         along * dirY - halfW * perpY + random(-0.3, 0.3)
-      });
+      pushWing(w, rootX,
+        along * dirX - halfW * perpX + random(-0.3, 0.3),
+        along * dirY - halfW * perpY + random(-0.3, 0.3));
     }
 
     // Vena longitudinal central
     for (let t = 0; t < 1; t += 0.025) {
       const along = t * wLen;
-      local.push({
-        x: rootX + along * dirX + random(-0.4, 0.4),
-        y:         along * dirY + random(-0.4, 0.4)
-      });
+      pushWing(w, rootX,
+        along * dirX + random(-0.4, 0.4),
+        along * dirY + random(-0.4, 0.4));
     }
 
     // Venas transversales (nervaduras)
@@ -175,10 +187,9 @@ function dragonfly(cx, cy, scale, rot = 0) {
       const along = t * wLen;
       for (let u = -1; u <= 1; u += 0.08) {
         if (random() < 0.35) {
-          local.push({
-            x: rootX + along * dirX + u * halfW * perpX,
-            y:         along * dirY + u * halfW * perpY
-          });
+          pushWing(w, rootX,
+            along * dirX + u * halfW * perpX,
+            along * dirY + u * halfW * perpY);
         }
       }
     }
@@ -209,11 +220,19 @@ function dragonfly(cx, cy, scale, rot = 0) {
   }
 
   // === ROTAR toda la forma y trasladar a (cx, cy) ===
+  // Preservamos p.wing (metadata de ala) sin tocar sus coords locales:
+  // el aleteo se aplica despues sobre (wing.lx, wing.ly) y rota el resultado
+  // por `df.rot`, asi cada ala se mueve relativa a su raiz pero respetando
+  // la orientacion global de la libelula.
   const cr = cos(rot), sr = sin(rot);
-  return local.map(p => ({
-    x: cx + p.x * cr - p.y * sr,
-    y: cy + p.x * sr + p.y * cr
-  }));
+  return local.map(p => {
+    const out = {
+      x: cx + p.x * cr - p.y * sr,
+      y: cy + p.x * sr + p.y * cr
+    };
+    if (p.wing) out.wing = p.wing;
+    return out;
+  });
 }
 
 // ─── VARIABLES GLOBALES ──────────────────────────────────────────
@@ -260,11 +279,14 @@ function setup() {
       behavior: cfg.behavior,
       pos: cfg.pos,
       scale: sc,
+      rot: cfg.rot,
       baseCx, baseCy,
       cx: baseCx, cy: baseCy,
       flightSeedX: random(10000),
       flightSeedY: random(10000),
-      pixels: pts.map(p => ({ x: p.x, y: p.y })),
+      // Conservamos `wing` en cada pixel para que las particulas que
+      // caigan sobre el ala lo hereden y puedan aletear despues.
+      pixels: pts,
       particles: [],
       time: random(1000),
       pulse: 1,
@@ -277,7 +299,7 @@ function setup() {
 
     for (let i = 0; i < NUM_PARTICLES; i++) {
       const rp = random(df.pixels);
-      df.particles.push(new Particle(rp.x, rp.y, df));
+      df.particles.push(new Particle(rp.x, rp.y, df, rp.wing || null));
     }
   }
 
@@ -350,12 +372,20 @@ function draw() {
 }
 
 // ─── PARTÍCULA ───────────────────────────────────────────────────
+// Frecuencia y amplitud del aleteo (compartidas por todas las libelulas).
+// Las alas se rotan alrededor de su raiz: amplitud ~13 grados, ~3 Hz a 60fps.
+const FLAP_FREQ = 0.32;
+const FLAP_AMP  = 0.22;
+const FLAP_HIND_PHASE = 0.65; // hindwings ligeramente desfasadas
+
 class Particle {
-  constructor(rx, ry, df) {
+  constructor(rx, ry, df, wing) {
     // Coordenadas relativas al centro de la libelula (para que "vuele" entera).
     this.relOx = rx;
     this.relOy = ry;
     this.dfId = df.id;
+    // Metadata de ala (null si la particula cayo en el cuerpo, antenas, etc.)
+    this.wing = wing || null;
     const startAbs = this.absOrigin();
     this.x  = startAbs.x + randomGaussian(0, 25);
     this.y  = startAbs.y + randomGaussian(0, 25);
@@ -387,7 +417,34 @@ class Particle {
 
   absOrigin() {
     const d = this.ownDf();
+    if (this.wing) return this.flapOrigin(d);
     return { x: d.cx + this.relOx, y: d.cy + this.relOy };
+  }
+
+  // Origen "vivo" de una particula de ala: la rotamos alrededor de la raiz
+  // del ala (rootX, 0) en coords locales del cuerpo, y despues aplicamos
+  // la rotacion global del cuerpo (df.rot) y la traslacion al centro vivo.
+  // Cada ala alterna su signo segun w.side, y las hindwings (idx 2 y 3)
+  // van con un pequeño desfase respecto a las forewings.
+  flapOrigin(d) {
+    const w = this.wing;
+    const phase = (w.idx >= 2) ? FLAP_HIND_PHASE : 0;
+    // Las dos alas de un mismo lado del cuerpo aletean al unisono;
+    // multiplicamos por w.side para que las alas izquierda y derecha
+    // suban/bajen de manera simetrica (espejo).
+    const ang = sin(frameCount * FLAP_FREQ + phase) * FLAP_AMP * w.side;
+    const cf = Math.cos(ang), sf = Math.sin(ang);
+    // Rotar (lx, ly) alrededor de la raiz del ala (que esta en (rootX, 0)
+    // en local antes de aplicar la rotacion global del cuerpo).
+    const rx = w.lx * cf - w.ly * sf;
+    const ry = w.lx * sf + w.ly * cf;
+    const localX = w.rootX + rx;
+    const localY = ry;
+    const cr = Math.cos(d.rot), sr = Math.sin(d.rot);
+    return {
+      x: d.cx + localX * cr - localY * sr,
+      y: d.cy + localX * sr + localY * cr
+    };
   }
 
   startMorph(target, speed, commit) {
@@ -400,6 +457,7 @@ class Particle {
     this.morphTargetDf = target;
     this.morphTargetRelX = p.x;
     this.morphTargetRelY = p.y;
+    this.morphTargetWing = p.wing || null;
     this.morphSrcDfId = this.dfId;
     this.morphSrcRelX = this.relOx;
     this.morphSrcRelY = this.relOy;
@@ -412,9 +470,10 @@ class Particle {
       if (others.length) this.startMorph(random(others), MORPHING_SPEED, random() < 0.08);
     }
 
-    // Centro absoluto actual (sigue al vuelo de la libelula).
+    // Centro absoluto actual (sigue al vuelo de la libelula y, si la
+    // particula esta en un ala, tambien al aleteo).
     const ownDf = this.ownDf();
-    const origin = { x: ownDf.cx + this.relOx, y: ownDf.cy + this.relOy };
+    const origin = this.absOrigin();
 
     if (this.isMorphing) {
       this.morphProgress += this.morphSpeed;
@@ -435,6 +494,7 @@ class Particle {
         if (this.morphCommit) {
           this.relOx = this.morphTargetRelX;
           this.relOy = this.morphTargetRelY;
+          this.wing = this.morphTargetWing;
           this.behavior = this.morphTargetDf.behavior;
           this.dfId = this.morphTargetDf.id;
         }
@@ -536,7 +596,7 @@ function keyPressed() {
       df.particles = [];
       for (let i = 0; i < NUM_PARTICLES; i++) {
         const p = random(df.pixels);
-        df.particles.push(new Particle(p.x, p.y, df));
+        df.particles.push(new Particle(p.x, p.y, df, p.wing || null));
       }
     }
   }
