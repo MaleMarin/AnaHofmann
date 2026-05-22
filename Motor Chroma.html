@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Motor de Chroma</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+<style>
+:root{--bg:#f0f0f2;--glass:rgba(255,255,255,0.78);--txt:#1d1d1f;--txt2:#86868b;--border:rgba(0,0,0,0.1);--accent:#0071e3;--accent2:#0077ed;--sh1:0 2px 8px rgba(0,0,0,0.08);--sh2:0 4px 20px rgba(0,0,0,0.13);--sh3:0 8px 36px rgba(0,0,0,0.18);--r1:8px;--r2:12px;--r3:18px;--ease:all 0.26s cubic-bezier(0.4,0,0.2,1)}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;overflow:hidden}
+body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif;background:var(--bg);color:var(--txt);-webkit-font-smoothing:antialiased;display:flex;flex-direction:column}
+.top-hint{flex-shrink:0;padding:8px 16px 4px;text-align:center;font-size:11px;color:var(--txt2);background:rgba(240,240,242,0.9);backdrop-filter:blur(20px);letter-spacing:.2px}
+.nav{flex-shrink:0;padding:10px 28px 14px;display:flex;align-items:center;gap:14px;background:rgba(240,240,242,0.9);backdrop-filter:blur(20px);border-bottom:0.5px solid var(--border);z-index:100}
+.nav-title{font-size:19px;font-weight:600;letter-spacing:-.4px;white-space:nowrap;margin-right:8px}
+.nav-center{display:flex;gap:10px;align-items:center;flex:1;justify-content:center}
+.nav-right{display:flex;gap:10px;align-items:center}
+.hint{font-size:12px;color:var(--txt2);white-space:nowrap}
+.cg{position:relative}
+.cb{display:flex;align-items:center;gap:8px;padding:8px 15px;background:var(--glass);backdrop-filter:blur(20px) saturate(180%);border:1px solid var(--border);border-radius:var(--r2);color:var(--txt);font-size:13.5px;font-weight:500;cursor:pointer;transition:var(--ease);box-shadow:var(--sh1);min-width:140px;justify-content:space-between;white-space:nowrap}
+.cb:hover{background:rgba(255,255,255,.95);box-shadow:var(--sh2);transform:translateY(-1px)}
+.cb:active{transform:translateY(0)}
+.cb.pal-on{background:rgba(0,113,227,.08);border-color:rgba(0,113,227,.35);color:var(--accent)}
+.cb-arrow{font-size:11px;opacity:.5;transition:var(--ease)}
+.cg.open .cb-arrow{transform:rotate(180deg)}
+.btn-dl{display:flex;align-items:center;gap:7px;padding:8px 22px;background:var(--accent);border:none;border-radius:var(--r2);color:#fff;font-size:13.5px;font-weight:500;cursor:pointer;transition:var(--ease);box-shadow:var(--sh1)}
+.btn-dl:hover{background:var(--accent2);box-shadow:var(--sh2);transform:translateY(-1px)}
+.btn-dl:active{transform:translateY(0)}
+.dd{position:absolute;top:calc(100% + 8px);left:0;background:rgba(255,255,255,.88);backdrop-filter:blur(28px) saturate(200%);border:1px solid rgba(255,255,255,.7);border-radius:var(--r3);box-shadow:var(--sh3);opacity:0;visibility:hidden;transform:translateY(-6px);transition:var(--ease);z-index:1000;overflow:hidden;display:none}
+.cg.open .dd{opacity:1;visibility:visible;transform:translateY(0);display:block}
+.dd-head{padding:13px 17px;border-bottom:1px solid rgba(0,0,0,.06);background:rgba(255,255,255,.5);font-size:10.5px;font-weight:600;color:var(--txt2);text-transform:uppercase;letter-spacing:.6px}
+.dd-body{overflow-y:auto;padding:6px}
+.dd-body::-webkit-scrollbar{width:4px}
+.dd-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+.dd-artists{min-width:268px;max-height:calc(100vh - 120px)}
+.dd-artists .dd-body{max-height:calc(100vh - 170px)}
+.era-lbl{padding:9px 13px 3px;font-size:9.5px;font-weight:700;color:rgba(0,0,0,.28);text-transform:uppercase;letter-spacing:.8px}
+.ai{display:flex;justify-content:space-between;align-items:center;padding:8px 13px;border-radius:var(--r1);cursor:pointer;transition:var(--ease);margin:1px 0}
+.ai:hover{background:rgba(0,0,0,.04)}
+.ai.sel{background:rgba(0,113,227,.09);color:var(--accent)}
+.ai-name{font-size:13.5px;font-weight:500}
+.ai-year{font-size:12px;color:var(--txt2)}
+.ai.sel .ai-year{color:rgba(0,113,227,.65)}
+.dd-palette{min-width:295px}
+.pal-body{padding:16px;display:flex;flex-direction:column;gap:12px}
+.cr{display:flex;align-items:center;gap:11px}
+.cr input[type=color]{width:52px;height:52px;border:1.5px solid var(--border);border-radius:var(--r1);cursor:pointer;background:none;padding:0;transition:var(--ease)}
+.cr input[type=color]::-webkit-color-swatch-wrapper{padding:0}
+.cr input[type=color]::-webkit-color-swatch{border:none;border-radius:6px}
+.cr input[type=color]:hover{transform:scale(1.06);box-shadow:var(--sh2)}
+.cr label{font-size:13.5px;font-weight:500;flex:1}
+.apply-btn{margin:4px 16px 16px;padding:10px;background:var(--accent);color:#fff;border:none;border-radius:var(--r2);font-size:14px;font-weight:500;cursor:pointer;transition:var(--ease);width:calc(100% - 32px)}
+.apply-btn:hover{background:var(--accent2);transform:translateY(-1px)}
+.dd-settings{min-width:285px}
+.set-body{padding:16px;display:flex;flex-direction:column;gap:18px}
+.sl-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:13.5px;font-weight:500}
+.sl-val{font-size:12px;color:var(--txt2);font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;height:4px;border-radius:2px;background:var(--border);outline:none;-webkit-appearance:none;cursor:pointer}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--accent);cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,.2);transition:var(--ease)}
+input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--accent);cursor:pointer;border:none}
+.tg-row{display:flex;justify-content:space-between;align-items:center;font-size:13.5px;font-weight:500;cursor:pointer}
+.tg{position:relative;width:44px;height:26px;flex-shrink:0}
+.tg input{opacity:0;width:0;height:0}
+.tg-t{position:absolute;cursor:pointer;inset:0;background:#ccc;transition:var(--ease);border-radius:26px}
+.tg-t:before{position:absolute;content:"";height:20px;width:20px;left:3px;bottom:3px;background:#fff;transition:var(--ease);border-radius:50%;box-shadow:0 2px 4px rgba(0,0,0,.2)}
+.tg input:checked+.tg-t{background:var(--accent)}
+.tg input:checked+.tg-t:before{transform:translateX(18px)}
+.canvas-wrap{flex:1;display:flex;align-items:center;justify-content:center;padding:30px;overflow:hidden;background:#fff}
+#canvas-container{aspect-ratio:4/3;height:100%;max-width:100%;display:flex;align-items:center;justify-content:center;background:#fff;border-radius:var(--r3);box-shadow:0 0 0 1px rgba(0,0,0,0.06),0 8px 32px rgba(0,0,0,0.1);overflow:hidden;padding:18px}
+#canvas-container canvas{display:block;max-width:100%;max-height:100%}
+.overlay{position:fixed;inset:0;z-index:998;display:none;background:rgba(0,0,0,.2);backdrop-filter:blur(3px)}
+.overlay.on{display:block}
+@media(max-width:860px){.hint{display:none}.top-hint{font-size:10px;padding:6px 12px 3px}.nav{padding:8px 16px;gap:8px}.canvas-wrap{padding:16px}}
+@media(max-width:640px){.nav{flex-wrap:wrap}.nav-center{order:3;width:100%;overflow-x:auto;padding-bottom:4px}.cb{min-width:auto;font-size:13px;padding:7px 12px}.dd{position:fixed!important;left:0!important;right:0!important;top:auto!important;bottom:0!important;min-width:auto!important;width:100%!important;border-radius:var(--r3) var(--r3) 0 0!important;max-height:72vh!important;transform:translateY(100%)!important}.cg.open .dd{transform:translateY(0)!important}}
+</style>
+</head>
+<body>
+<div class="overlay" id="overlay"></div>
+<div class="top-hint">Haz clic en el canvas para generar una nueva obra</div>
+<nav class="nav">
+  <h1 class="nav-title">Motor de Chroma</h1>
+  <div class="nav-center">
+    <div class="cg" id="cg-a">
+      <button class="cb" id="btn-a"><span id="txt-a">Paleta de Artista</span><span class="cb-arrow">⌄</span></button>
+      <div class="dd dd-artists" id="dd-a">
+        <div class="dd-head">Seleccionar Artista</div>
+        <div class="dd-body" id="artist-list"></div>
+      </div>
+    </div>
+    <div class="cg" id="cg-p">
+      <button class="cb" id="btn-p"><span>Paleta Personalizada</span><span class="cb-arrow">⌄</span></button>
+      <div class="dd dd-palette" id="dd-p">
+        <div class="dd-head">Crear tu paleta</div>
+        <div class="pal-body">
+          <div class="cr"><input type="color" id="c1" value="#E63946"><label for="c1">Color 1</label></div>
+          <div class="cr"><input type="color" id="c2" value="#457B9D"><label for="c2">Color 2</label></div>
+          <div class="cr"><input type="color" id="c3" value="#F4A261"><label for="c3">Color 3</label></div>
+          <div class="cr"><input type="color" id="c4" value="#2A9D8F"><label for="c4">Color 4</label></div>
+          <div class="cr"><input type="color" id="c5" value="#E9C46A"><label for="c5">Color 5</label></div>
+        </div>
+        <button class="apply-btn" id="btn-apply">Aplicar paleta</button>
+      </div>
+    </div>
+    <div class="cg" id="cg-s">
+      <button class="cb" id="btn-s"><span>Configuración</span><span class="cb-arrow">⌄</span></button>
+      <div class="dd dd-settings" id="dd-s">
+        <div class="dd-head">Ajustes del canvas</div>
+        <div class="set-body">
+          <div><div class="sl-row"><span>Capas</span><span class="sl-val" id="vl">10</span></div><input type="range" id="sl-l" min="1" max="20" value="10"></div>
+          <div><div class="sl-row"><span>Rotación</span><span class="sl-val" id="vr">1°</span></div><input type="range" id="sl-r" min="0" max="360" value="1"></div>
+          <div><div class="sl-row"><span>Grosor</span><span class="sl-val" id="vs">1</span></div><input type="range" id="sl-s" min="1" max="10" value="1"></div>
+          <div><div class="sl-row"><span>Opacidad</span><span class="sl-val" id="va">255</span></div><input type="range" id="sl-a" min="30" max="255" value="255"></div>
+          <label class="tg-row"><span>Mostrar líneas</span><div class="tg"><input type="checkbox" id="tog-l" checked><span class="tg-t"></span></div></label>
+          <label class="tg-row"><span>Rellenar formas</span><div class="tg"><input type="checkbox" id="tog-f" checked><span class="tg-t"></span></div></label>
+          <label class="tg-row"><span>Líneas de color</span><div class="tg"><input type="checkbox" id="tog-c"><span class="tg-t"></span></div></label>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="nav-right">
+    <button class="btn-dl" id="btn-dl">↓ Descargar</button>
+  </div>
+</nav>
+<div class="canvas-wrap"><div id="canvas-container"></div></div>
+
+<script>
+const ERAS = [
+  { era:"Renacimiento", artists:[
+    { key:"davinci", name:"Leonardo Da Vinci", year:1452, colors:[[38, 32, 24],[88, 72, 58],[148, 92, 62],[188, 152, 108],[228, 212, 178],[62, 78, 72],[148, 38, 32]], ref:"Mona Lisa, La Virgen de las Rocas" },
+    { key:"botticelli", name:"Sandro Botticelli", year:1445, colors:[[42, 62, 48],[148, 188, 178],[218, 162, 148],[188, 152, 78],[232, 218, 198],[188, 78, 62],[42, 62, 118]], ref:"El nacimiento de Venus, La primavera" },
+    { key:"michelangelo", name:"Michelangelo", year:1475, colors:[[218, 168, 138],[188, 142, 88],[82, 108, 132],[148, 188, 168],[148, 62, 48],[218, 142, 88],[62, 48, 38]], ref:"Capilla Sixtina — frescos" },
+    { key:"raphael", name:"Rafael Sanzio", year:1483, colors:[[62, 88, 132],[188, 62, 48],[218, 188, 148],[148, 168, 92],[148, 92, 62],[82, 62, 108],[228, 218, 198]], ref:"La escuela de Atenas, Madonnas" },
+    { key:"titian", name:"Tiziano", year:1488, colors:[[188, 62, 48],[62, 88, 132],[218, 168, 108],[148, 88, 62],[218, 168, 142],[82, 62, 48],[228, 218, 198]], ref:"Venus de Urbino, Asunción" },
+    { key:"eyck", name:"Jan van Eyck", year:1390, colors:[[148, 38, 32],[62, 82, 118],[188, 152, 88],[82, 108, 62],[38, 28, 22],[218, 188, 148],[148, 92, 62]], ref:"El retrato Arnolfini, El políptico de Gante" },
+  ]},
+  { era:"Barroco", artists:[
+    { key:"caravaggio", name:"Caravaggio", year:1571, colors:[[18, 12, 8],[148, 38, 28],[188, 142, 62],[82, 62, 38],[218, 188, 148],[148, 22, 18],[82, 108, 48]], ref:"La vocación de San Mateo, Judith y Holofernes" },
+    { key:"rembrandt", name:"Rembrandt", year:1606, colors:[[28, 22, 18],[188, 142, 48],[148, 28, 22],[82, 62, 38],[218, 188, 128],[148, 108, 62],[228, 198, 148]], ref:"La ronda nocturna, Autorretrato" },
+    { key:"vermeer", name:"Johannes Vermeer", year:1632, colors:[[28, 38, 88],[228, 188, 38],[228, 218, 198],[148, 108, 78],[42, 32, 28],[148, 162, 188],[188, 142, 78]], ref:"La joven de la perla, La lechera" },
+    { key:"velazquez", name:"Diego Velázquez", year:1599, colors:[[42, 32, 28],[148, 78, 48],[188, 152, 88],[228, 218, 198],[82, 108, 132],[168, 28, 32],[188, 168, 148]], ref:"Las Meninas, La rendición de Breda" },
+    { key:"gentileschi", name:"Artemisia Gentileschi", year:1593, colors:[[148, 22, 18],[188, 152, 38],[82, 62, 38],[218, 188, 148],[42, 32, 22],[148, 62, 38],[62, 82, 48]], ref:"Judith decapitando a Holofernes" },
+    { key:"rubens", name:"Peter Paul Rubens", year:1577, colors:[[148, 38, 32],[228, 188, 168],[188, 152, 88],[82, 62, 38],[62, 82, 92],[218, 188, 148],[62, 82, 62]], ref:"Las tres gracias, El jardín del amor" },
+  ]},
+  { era:"Romanticismo & Realismo", artists:[
+    { key:"goya", name:"Francisco Goya", year:1746, colors:[[28, 22, 18],[148, 28, 22],[228, 198, 88],[188, 152, 108],[82, 62, 38],[228, 218, 198],[62, 82, 132]], ref:"Saturno devorando a su hijo, Los fusilamientos" },
+    { key:"delacroix", name:"Eugène Delacroix", year:1798, colors:[[148, 28, 32],[42, 62, 132],[228, 168, 38],[188, 152, 108],[82, 62, 38],[228, 218, 198],[62, 82, 92]], ref:"La libertad guiando al pueblo" },
+    { key:"turner", name:"J.M.W. Turner", year:1775, colors:[[228, 168, 38],[188, 108, 62],[148, 108, 88],[62, 82, 108],[228, 198, 148],[148, 38, 28],[228, 218, 198]], ref:"Rain Steam and Speed, El Temerario" },
+    { key:"courbet", name:"Gustave Courbet", year:1819, colors:[[42, 32, 28],[82, 62, 48],[148, 108, 62],[188, 168, 148],[62, 82, 62],[148, 38, 28],[228, 218, 198]], ref:"El estudio del pintor, Los picapedreros" },
+  ]},
+  { era:"Impresionismo", artists:[
+    { key:"monet", name:"Claude Monet", year:1840, colors:[[148, 188, 218],[228, 128, 62],[218, 168, 188],[148, 168, 108],[228, 198, 108],[82, 108, 118],[228, 228, 218]], ref:"Ninfeas, Catedral de Ruán, Impresión sol naciente" },
+    { key:"renoir", name:"Pierre-Auguste Renoir", year:1841, colors:[[228, 188, 168],[148, 38, 38],[82, 108, 92],[188, 168, 88],[228, 218, 198],[148, 188, 168],[148, 108, 78]], ref:"Le Moulin de la Galette, Almuerzo de los remeros" },
+    { key:"degas", name:"Edgar Degas", year:1834, colors:[[228, 218, 198],[148, 108, 78],[188, 168, 142],[82, 62, 48],[62, 92, 82],[218, 188, 168],[188, 152, 88]], ref:"La clase de danza, El absenta" },
+    { key:"cassatt", name:"Mary Cassatt", year:1844, colors:[[228, 188, 168],[148, 188, 168],[62, 82, 118],[228, 218, 198],[188, 152, 108],[188, 38, 48],[82, 92, 108]], ref:"La hora del té, Madre e hijo" },
+    { key:"morisot", name:"Berthe Morisot", year:1841, colors:[[228, 218, 198],[148, 168, 188],[188, 188, 198],[218, 188, 168],[82, 108, 118],[148, 188, 168],[188, 168, 142]], ref:"La cuna, Eugène Manet en la isla de Wight" },
+    { key:"pissarro", name:"Camille Pissarro", year:1830, colors:[[148, 108, 78],[188, 168, 142],[82, 108, 62],[228, 188, 148],[62, 82, 92],[148, 168, 108],[218, 198, 168]], ref:"Montmartre, Las cosechadoras" },
+    { key:"sisley", name:"Alfred Sisley", year:1839, colors:[[148, 168, 188],[188, 188, 168],[228, 218, 198],[82, 108, 118],[148, 108, 78],[188, 168, 108],[62, 82, 62]], ref:"La inundación en Port-Marly" },
+  ]},
+  { era:"Neo-Impresionismo", artists:[
+    { key:"seurat", name:"Georges Seurat", year:1859, colors:[[148, 168, 108],[228, 188, 38],[82, 108, 118],[148, 38, 38],[188, 142, 78],[42, 62, 88],[228, 218, 198]], ref:"Un domingo en La Grande Jatte" },
+    { key:"signac", name:"Paul Signac", year:1863, colors:[[228, 168, 88],[62, 108, 148],[148, 188, 108],[188, 88, 62],[228, 188, 148],[228, 168, 188],[82, 132, 132]], ref:"El puerto de Marsella" },
+  ]},
+  { era:"Post-Impresionismo", artists:[
+    { key:"vangogh", name:"Vincent Van Gogh", year:1853, colors:[[228, 188, 38],[62, 108, 148],[28, 38, 88],[188, 108, 62],[148, 188, 168],[228, 168, 88],[188, 38, 48]], ref:"La noche estrellada, Los girasoles, El dormitorio" },
+    { key:"cezanne", name:"Paul Cézanne", year:1839, colors:[[148, 168, 188],[188, 168, 108],[82, 108, 92],[188, 78, 48],[148, 108, 78],[228, 188, 88],[218, 188, 168]], ref:"Las bañistas, La montaña Sainte-Victoire" },
+    { key:"gauguin", name:"Paul Gauguin", year:1848, colors:[[228, 168, 38],[188, 78, 48],[82, 108, 62],[148, 38, 38],[62, 82, 108],[188, 108, 78],[188, 142, 88]], ref:"¿De dónde venimos? Tahití" },
+    { key:"toulouse", name:"Toulouse-Lautrec", year:1864, colors:[[228, 168, 38],[188, 28, 38],[42, 32, 28],[148, 108, 78],[228, 188, 108],[188, 78, 48],[82, 92, 108]], ref:"Moulin Rouge, Jane Avril" },
+    { key:"bonnard", name:"Pierre Bonnard", year:1867, colors:[[228, 168, 38],[188, 88, 62],[148, 188, 108],[228, 188, 88],[82, 108, 92],[188, 142, 168],[148, 108, 78]], ref:"El comedor, desnudos en el baño" },
+    { key:"redon", name:"Odilon Redon", year:1840, colors:[[228, 168, 38],[62, 108, 132],[148, 188, 108],[228, 88, 88],[188, 142, 168],[148, 168, 188],[82, 92, 108]], ref:"Cíclope, Floreros, Pasteles" },
+  ]},
+  { era:"Art Nouveau & Simbolismo", artists:[
+    { key:"klimt", name:"Gustav Klimt", year:1862, colors:[[228, 188, 38],[188, 142, 38],[148, 108, 62],[228, 168, 88],[42, 32, 28],[148, 38, 48],[82, 62, 38]], ref:"El beso, Judit I, El árbol de la vida" },
+    { key:"mucha", name:"Alphonse Mucha", year:1860, colors:[[228, 188, 108],[148, 108, 62],[188, 142, 88],[82, 108, 62],[228, 168, 88],[148, 38, 48],[188, 168, 88]], ref:"Carteles Art Nouveau — flores y figuras" },
+    { key:"moreau", name:"Gustave Moreau", year:1826, colors:[[228, 168, 38],[148, 38, 48],[188, 142, 88],[82, 62, 38],[42, 32, 28],[62, 82, 132],[218, 188, 148]], ref:"Salomé, Galatea" },
+    { key:"hilma", name:"Hilma af Klint", year:1862, colors:[[228, 188, 38],[228, 168, 188],[62, 108, 148],[148, 188, 168],[188, 78, 108],[228, 188, 108],[42, 32, 28]], ref:"Las pinturas para el templo" },
+  ]},
+  { era:"Expresionismo", artists:[
+    { key:"munch", name:"Edvard Munch", year:1863, colors:[[148, 28, 38],[228, 108, 38],[42, 32, 28],[228, 188, 38],[62, 38, 88],[228, 218, 198],[82, 62, 48]], ref:"El grito, La danza de la vida" },
+    { key:"schiele", name:"Egon Schiele", year:1890, colors:[[188, 142, 88],[148, 78, 48],[42, 32, 28],[228, 188, 148],[82, 62, 38],[148, 38, 48],[228, 168, 88]], ref:"Autorretrato, Desnudos expresionistas" },
+    { key:"nolde", name:"Emil Nolde", year:1867, colors:[[228, 168, 38],[188, 38, 48],[148, 28, 38],[82, 62, 38],[62, 108, 132],[228, 188, 108],[148, 188, 108]], ref:"Baile alrededor del becerro de oro" },
+    { key:"kirchner", name:"Ernst Ludwig Kirchner", year:1880, colors:[[228, 168, 38],[148, 38, 48],[188, 108, 62],[42, 32, 38],[82, 92, 108],[62, 108, 132],[148, 188, 108]], ref:"Escenas callejeras de Berlín" },
+    { key:"kokoschka", name:"Oskar Kokoschka", year:1886, colors:[[148, 78, 48],[188, 142, 88],[42, 62, 108],[82, 92, 108],[148, 38, 48],[228, 188, 148],[82, 62, 48]], ref:"La novia del viento, Retratos" },
+  ]},
+  { era:"Vanguardias Históricas", artists:[
+    { key:"picasso", name:"Pablo Picasso", year:1881, colors:[[42, 32, 28],[228, 188, 38],[188, 38, 48],[62, 108, 132],[228, 218, 198],[148, 78, 48],[82, 92, 108]], ref:"Época azul+rosa, Las señoritas de Aviñón" },
+    { key:"picasso_g", name:"Picasso — Guernica", year:1937, colors:[[42, 32, 28],[228, 218, 198],[82, 82, 78],[148, 148, 142],[188, 188, 178],[108, 108, 108],[28, 28, 28]], ref:"Guernica — paleta monocromática" },
+    { key:"matisse", name:"Henri Matisse", year:1869, colors:[[188, 38, 48],[62, 108, 132],[228, 168, 38],[148, 188, 108],[228, 88, 62],[42, 62, 92],[188, 78, 108]], ref:"La danza, Odalisca, Fauvismo" },
+    { key:"mondrian", name:"Piet Mondrian", year:1872, colors:[[228, 28, 38],[38, 62, 188],[228, 188, 38],[228, 228, 218],[28, 28, 28],[188, 188, 188],[148, 148, 148]], ref:"Composición en rojo, amarillo y azul" },
+    { key:"malevich", name:"Kazimir Malevich", year:1879, colors:[[28, 28, 28],[228, 218, 198],[188, 28, 38],[228, 188, 38],[38, 62, 188],[148, 148, 148],[188, 168, 148]], ref:"Cuadrado negro, Suprematismo" },
+    { key:"kandinsky", name:"Wassily Kandinsky", year:1866, colors:[[228, 188, 38],[38, 62, 168],[188, 38, 48],[42, 32, 28],[228, 218, 198],[148, 188, 108],[62, 132, 188]], ref:"Composición VIII, Cuadros con negro arco" },
+    { key:"klee", name:"Paul Klee", year:1879, colors:[[228, 168, 88],[188, 88, 48],[148, 188, 108],[82, 92, 108],[228, 188, 108],[188, 38, 48],[62, 108, 132]], ref:"Pez mágico, Senecio, Ad Parnassum" },
+    { key:"miro", name:"Joan Miró", year:1893, colors:[[188, 28, 38],[228, 188, 38],[38, 62, 168],[42, 32, 28],[148, 188, 108],[228, 218, 198],[148, 108, 78]], ref:"El carnaval del arlequín, Constelaciones" },
+    { key:"delaunay_s", name:"Sonia Delaunay", year:1885, colors:[[228, 168, 38],[188, 38, 48],[38, 62, 168],[148, 188, 108],[188, 88, 62],[228, 88, 108],[82, 62, 108]], ref:"Prism électrique, Simultanismo" },
+    { key:"lempicka", name:"Tamara de Lempicka", year:1898, colors:[[42, 32, 28],[148, 188, 108],[228, 188, 148],[188, 38, 48],[188, 142, 88],[38, 62, 148],[82, 108, 62]], ref:"La Tamara en el Bugatti, Art Déco" },
+  ]},
+  { era:"Surrealismo", artists:[
+    { key:"dali", name:"Salvador Dalí", year:1904, colors:[[148, 108, 62],[188, 168, 108],[228, 188, 108],[82, 62, 38],[62, 82, 132],[42, 32, 28],[228, 188, 148]], ref:"La persistencia de la memoria, Elefantes" },
+    { key:"magritte", name:"René Magritte", year:1898, colors:[[148, 168, 188],[42, 62, 92],[228, 188, 88],[42, 32, 28],[148, 108, 62],[188, 168, 148],[148, 188, 108]], ref:"La traición de las imágenes, El hijo del hombre" },
+    { key:"chagall", name:"Marc Chagall", year:1887, colors:[[62, 82, 132],[188, 38, 48],[228, 188, 38],[148, 188, 108],[228, 168, 88],[148, 108, 62],[228, 218, 198]], ref:"Yo y la aldea, Las novias" },
+    { key:"chirico", name:"Giorgio de Chirico", year:1888, colors:[[188, 168, 108],[148, 108, 62],[82, 108, 132],[228, 188, 88],[188, 38, 48],[148, 188, 108],[42, 32, 28]], ref:"Las musas inquietantes, Melancolía" },
+  ]},
+  { era:"Muralismo & Arte Latinoamericano", artists:[
+    { key:"rivera", name:"Diego Rivera", year:1886, colors:[[188, 38, 48],[228, 168, 38],[148, 108, 62],[82, 108, 62],[228, 188, 108],[62, 82, 132],[148, 188, 108]], ref:"Murales del Palacio Nacional de México" },
+    { key:"kahlo", name:"Frida Kahlo", year:1907, colors:[[148, 188, 108],[188, 38, 48],[228, 188, 148],[82, 108, 62],[188, 142, 88],[148, 38, 38],[62, 82, 132]], ref:"Las dos Fridas, Autorretrato con monos" },
+    { key:"orozco", name:"José Clemente Orozco", year:1883, colors:[[188, 38, 48],[228, 168, 38],[42, 32, 28],[148, 78, 48],[228, 88, 38],[82, 62, 38],[188, 108, 62]], ref:"Prometeo, Murales de Dartmouth" },
+    { key:"siqueiros", name:"David Siqueiros", year:1896, colors:[[188, 38, 48],[228, 168, 38],[148, 78, 48],[42, 32, 28],[82, 62, 38],[188, 108, 62],[228, 188, 148]], ref:"Eco de un Grito, murales políticos" },
+  ]},
+  { era:"Expresionismo Abstracto", artists:[
+    { key:"pollock", name:"Jackson Pollock", year:1912, colors:[[42, 32, 28],[228, 218, 198],[148, 108, 78],[188, 38, 48],[228, 188, 38],[38, 62, 132],[188, 168, 188]], ref:"No. 31, Lavender Mist, drip paintings" },
+    { key:"rothko", name:"Mark Rothko", year:1903, colors:[[188, 38, 38],[228, 108, 38],[82, 28, 38],[148, 38, 48],[38, 22, 28],[228, 168, 38],[42, 38, 88]], ref:"Naranja Rojo Amarillo, capillas" },
+    { key:"rothko_b", name:"Rothko — Azules", year:1903, colors:[[42, 38, 88],[82, 28, 38],[148, 38, 48],[188, 38, 38],[228, 108, 38],[38, 22, 28],[228, 168, 38]], ref:"Four Darks in Red, Seagram Murals" },
+    { key:"kline", name:"Franz Kline", year:1910, colors:[[28, 28, 28],[228, 218, 208],[108, 108, 108],[188, 188, 178],[82, 82, 78],[148, 148, 138],[88, 88, 88]], ref:"Chief, Mahoning — gestos en negro" },
+    { key:"dekooning", name:"Willem de Kooning", year:1904, colors:[[228, 188, 88],[188, 38, 48],[228, 168, 38],[148, 188, 108],[82, 108, 132],[228, 168, 168],[148, 78, 48]], ref:"Mujer I, Excavación" },
+    { key:"mitchell", name:"Joan Mitchell", year:1925, colors:[[228, 188, 38],[148, 188, 108],[62, 108, 132],[188, 88, 62],[228, 168, 88],[82, 108, 62],[188, 38, 48]], ref:"Ladybug, Grandes valles" },
+    { key:"frankenthaler", name:"Helen Frankenthaler", year:1928, colors:[[148, 188, 168],[228, 188, 88],[62, 108, 148],[188, 88, 108],[228, 168, 168],[188, 142, 168],[228, 188, 148]], ref:"Mountains and Sea, Soak-stain" },
+    { key:"bourgeois", name:"Louise Bourgeois", year:1911, colors:[[42, 32, 28],[148, 28, 38],[188, 168, 148],[108, 88, 72],[228, 218, 198],[82, 62, 48],[188, 38, 48]], ref:"Maman, Cells, Arañas rojas" },
+  ]},
+  { era:"Arte Moderno & Contemporáneo", artists:[
+    { key:"okeeffe", name:"Georgia O\'Keeffe", year:1887, colors:[[228, 218, 198],[188, 28, 38],[148, 108, 78],[228, 168, 88],[148, 188, 108],[42, 62, 92],[188, 142, 168]], ref:"Flores ampliadas, Skull series, Nuevo México" },
+    { key:"hopper", name:"Edward Hopper", year:1882, colors:[[188, 38, 38],[228, 188, 108],[62, 82, 92],[148, 78, 48],[42, 32, 28],[228, 168, 88],[82, 108, 92]], ref:"Nighthawks, Rooms by the Sea" },
+    { key:"bacon", name:"Francis Bacon", year:1909, colors:[[228, 168, 38],[188, 38, 48],[42, 32, 28],[148, 38, 38],[228, 88, 38],[148, 78, 48],[188, 142, 108]], ref:"Tres estudios de Lucian Freud" },
+    { key:"hockney", name:"David Hockney", year:1937, colors:[[62, 148, 188],[228, 218, 198],[148, 188, 108],[228, 188, 108],[188, 142, 108],[148, 188, 168],[228, 168, 88]], ref:"A Bigger Splash, piscinas de California" },
+    { key:"warhol", name:"Andy Warhol", year:1928, colors:[[228, 188, 38],[188, 28, 38],[228, 218, 198],[188, 38, 168],[38, 62, 168],[228, 88, 108],[62, 148, 188]], ref:"Marilyn Diptych, Campbell's Soup" },
+    { key:"riley", name:"Bridget Riley", year:1931, colors:[[28, 28, 28],[228, 218, 218],[188, 188, 188],[148, 148, 148],[228, 188, 38],[62, 108, 188],[188, 28, 38]], ref:"Movement in Squares, Op Art" },
+    { key:"basquiat", name:"Jean-Michel Basquiat", year:1960, colors:[[228, 188, 38],[188, 28, 38],[42, 32, 28],[38, 62, 188],[228, 218, 198],[148, 188, 108],[148, 108, 62]], ref:"Untitled Skull, Hollywood Africans" },
+    { key:"kusama", name:"Yayoi Kusama", year:1929, colors:[[228, 188, 38],[188, 28, 48],[42, 32, 28],[228, 218, 198],[188, 38, 168],[148, 108, 38],[228, 88, 88]], ref:"Infinity Dots, Pumpkins, Obliteration Room" },
+    { key:"twombly", name:"Cy Twombly", year:1928, colors:[[228, 218, 198],[188, 38, 48],[148, 28, 38],[148, 108, 78],[188, 168, 148],[228, 188, 168],[42, 32, 28]], ref:"Coronation of Sesostris, garabatos" },
+    { key:"freud", name:"Lucian Freud", year:1922, colors:[[188, 142, 108],[148, 108, 78],[82, 62, 48],[188, 168, 148],[228, 188, 148],[42, 32, 28],[62, 82, 62]], ref:"Benefits Supervisor Sleeping, retratos" },
+  ]},
+];
+
+let layers=10,rotStripe=1,showLines=true,alph=255,filling=true,colorLines=false,sw=1;
+let artistPalette=[],userPalette=[],userOn=false,currentKey="okeeffe";
+
+function getCanvasSize(){
+  const c=document.getElementById('canvas-container');
+  const cs=getComputedStyle(c);
+  const padX=parseFloat(cs.paddingLeft)+parseFloat(cs.paddingRight);
+  const padY=parseFloat(cs.paddingTop)+parseFloat(cs.paddingBottom);
+  const w=(c.clientWidth||window.innerWidth-56)-padX;
+  const h=(c.clientHeight||window.innerHeight-80)-padY;
+  return {w:Math.max(100,w),h:Math.max(100,h)};
+}
+
+function setup(){
+  const s=getCanvasSize();
+  createCanvas(s.w,s.h).parent('canvas-container');
+  noLoop();
+  setArtist("okeeffe");
+  drawArt();
+}
+
+function windowResized(){
+  const s=getCanvasSize();
+  resizeCanvas(s.w,s.h);
+  drawArt();
+}
+
+function drawArt(){
+  background(255);
+  if(showLines){stroke(0,0,0,60);strokeWeight(sw);}else{noStroke();}
+  angleMode(DEGREES);
+  const end=height/2+500;
+  for(let i=0;i<layers;i++){
+    let y1=(i===0)?-height/2-300:-height/2+(height/layers)*i;
+    let y2=y1,y3=y1,y4=y1,y5=y1,y6=y1;
+    const rl=random(359);let rt=0;
+    while(y1<end&&y2<end&&y3<end&&y4<end&&y5<end&&y6<end){
+      y1+=random(0,20);y2+=random(0,20);y3+=random(0,20);
+      y4+=random(0,20);y5+=random(0,20);y6+=random(0,20);
+      const pal=userOn&&userPalette.length?userPalette:artistPalette;
+      const col=pal[floor(random(pal.length))];
+      if(filling)fill(col[0],col[1],col[2],alph);else noFill();
+      if(colorLines)stroke(col[0],col[1],col[2],alph);
+      push();translate(width/2,height/2);rt+=rotStripe;rotate(rt+rl);
+      const xs=-width/2;
+      beginShape();
+      curveVertex(xs-300,height/2+500);curveVertex(xs-300,y1);
+      curveVertex(xs+(width/5)*1,y2);curveVertex(xs+(width/5)*2,y3);
+      curveVertex(xs+(width/5)*3,y4);curveVertex(xs+(width/5)*4,y5);
+      curveVertex(width/2+300,y6);curveVertex(width/2+300,height/2+500);
+      endShape(CLOSE);pop();
+    }
+  }
+}
+
+function mousePressed(){if(mouseX>=0&&mouseX<=width&&mouseY>=0&&mouseY<=height)drawArt();}
+function keyTyped(){if(key==='s')saveCanvas('motordechroma','jpg');}
+
+function setArtist(key){
+  for(const e of ERAS){const a=e.artists.find(x=>x.key===key);if(a){artistPalette=a.colors;currentKey=key;return a;}}
+}
+
+function buildList(){
+  const el=document.getElementById('artist-list');
+  ERAS.forEach(e=>{
+    const lbl=document.createElement('div');lbl.className='era-lbl';lbl.textContent=e.era;el.appendChild(lbl);
+    e.artists.forEach(a=>{
+      const d=document.createElement('div');d.className='ai';d.dataset.key=a.key;
+      d.innerHTML=`<span class="ai-name">${a.name}</span><span class="ai-year">${a.year}</span>`;
+      if(a.key===currentKey)d.classList.add('sel');
+      d.addEventListener('click',()=>{
+        document.querySelectorAll('.ai').forEach(x=>x.classList.remove('sel'));
+        d.classList.add('sel');
+        document.getElementById('txt-a').textContent=a.name;
+        document.getElementById('btn-p').classList.remove('pal-on');
+        userOn=false;setArtist(a.key);drawArt();closeAll();
+      });
+      el.appendChild(d);
+    });
+  });
+}
+
+function closeAll(){
+  document.querySelectorAll('.cg').forEach(g=>g.classList.remove('open'));
+  document.getElementById('overlay').classList.remove('on');
+}
+function tog(id){
+  const g=document.getElementById(id);const was=g.classList.contains('open');
+  closeAll();if(!was){g.classList.add('open');if(window.innerWidth<=640)document.getElementById('overlay').classList.add('on');}
+}
+function hex2rgb(h){return[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];}
+
+function initUI(){
+  buildList();
+  document.getElementById('btn-a').addEventListener('click',e=>{e.stopPropagation();tog('cg-a');});
+  document.getElementById('btn-p').addEventListener('click',e=>{e.stopPropagation();tog('cg-p');});
+  document.getElementById('btn-s').addEventListener('click',e=>{e.stopPropagation();tog('cg-s');});
+  document.addEventListener('click',e=>{if(!e.target.closest('.cg')||e.target.id==='overlay')closeAll();});
+  document.getElementById('overlay').addEventListener('click',closeAll);
+  document.getElementById('btn-apply').addEventListener('click',e=>{
+    e.stopPropagation();
+    userPalette=['c1','c2','c3','c4','c5'].map(id=>hex2rgb(document.getElementById(id).value));
+    userOn=true;document.getElementById('btn-p').classList.add('pal-on');
+    document.querySelectorAll('.ai').forEach(x=>x.classList.remove('sel'));
+    document.getElementById('txt-a').textContent='Paleta personalizada';
+    drawArt();closeAll();
+  });
+  const bindSl=(id,vid,sfx,cb)=>{
+    const s=document.getElementById(id),o=document.getElementById(vid);
+    s.addEventListener('input',()=>{o.textContent=s.value+(sfx||'');cb(s.value);});
+  };
+  bindSl('sl-l','vl','',v=>{layers=parseInt(v);drawArt();});
+  bindSl('sl-r','vr','°',v=>{rotStripe=parseInt(v);drawArt();});
+  bindSl('sl-s','vs','',v=>{sw=parseInt(v);drawArt();});
+  bindSl('sl-a','va','',v=>{alph=parseInt(v);drawArt();});
+  const bindTog=(id,cb)=>document.getElementById(id).addEventListener('change',e=>cb(e.target.checked));
+  bindTog('tog-l',v=>{showLines=v;drawArt();});
+  bindTog('tog-f',v=>{filling=v;drawArt();});
+  bindTog('tog-c',v=>{colorLines=v;drawArt();});
+  document.getElementById('btn-dl').addEventListener('click',e=>{
+    e.stopPropagation();saveCanvas('motordechroma-'+Date.now(),'png');
+  });
+  document.getElementById('txt-a').textContent="Georgia O'Keeffe";
+}
+
+window.addEventListener('load',()=>{setTimeout(initUI,800);});
+</script>
+</body>
+</html>
