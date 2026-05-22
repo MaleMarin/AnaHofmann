@@ -4,13 +4,30 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Fibras — Ana Hofmann</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400&display=swap" rel="stylesheet">
 <style>
   html,body{margin:0;padding:0;width:100%;height:100%;background:#000;overflow:hidden}
   canvas{display:block}
+  .subtitle{
+    position:fixed;
+    bottom:28px;
+    left:50%;
+    transform:translateX(-50%);
+    color:rgba(232,228,220,0.45);
+    font-family:'Space Grotesk',sans-serif;
+    font-weight:300;
+    font-size:13px;
+    letter-spacing:.35em;
+    text-transform:uppercase;
+    pointer-events:none;
+    user-select:none;
+    white-space:nowrap;
+  }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
 </head>
 <body>
 <script src="/apps/fibras/sketch.js?v=4"></script>
+<div class="subtitle">Anatomía de la Distancia</div>
 </body>
 </html>
