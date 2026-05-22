@@ -335,9 +335,9 @@ function draw() {
     // Ciclo temporal lento: el patrón de vuelo evoluciona despacio,
     // tipo planeo de pájaro.
     df.time += 0.006;
-    if (df.behavior === 'pulse')   df.pulse = 1 + sin(df.time * 2.2) * 0.14;
+    if (df.behavior === 'pulse')   df.pulse = 1 + sin(df.time * 2.2) * 0.20;
     else if (df.behavior === 'flow')    df.pulse = 1 + sin(df.time * 0.6) * 0.07;
-    else if (df.behavior === 'organic') df.pulse = 1 + sin(df.time * 1.4) * 0.04;
+    else if (df.behavior === 'organic') df.pulse = 1 + sin(df.time * 1.4) * 0.06;
     else df.pulse = 1;
 
     // Vuelo armónico: una capa de Perlin muy lento define la trayectoria
@@ -372,12 +372,19 @@ function draw() {
 }
 
 // ─── PARTÍCULA ───────────────────────────────────────────────────
-// Frecuencia y amplitud del aleteo (compartidas por todas las libelulas).
-// Camara lenta: ~0.8 Hz, amplitud ~9 grados. Las hindwings van un poco
-// desfasadas respecto a las forewings.
-const FLAP_FREQ = 0.085;
-const FLAP_AMP  = 0.16;
-const FLAP_HIND_PHASE = 0.5;
+// Parametros de aleteo por behavior. Cada libelula respeta su leyenda:
+//  - organic ("Respiracion Organica"): aleteo suave, ligado a la respiracion.
+//  - static  ("Forma Estatica"):       SIN aleteo, alas quietas.
+//  - pulse   ("Pulso Ritmico"):        aleteo en rafagas (latido y pausa).
+//  - flow    ("Flujo Fluido"):         aleteo continuo, amplio y constante.
+// Las hindwings van con un pequeño desfase respecto a las forewings.
+const FLAP_HIND_PHASE = 0.55;
+const FLAP_PARAMS = {
+  organic: { freq: 0.055, amp: 0.14 },
+  static:  { freq: 0.0,   amp: 0.0  },
+  pulse:   { freq: 0.12,  amp: 0.10 }, // amp se modula extra con el latido
+  flow:    { freq: 0.10,  amp: 0.22 },
+};
 
 class Particle {
   constructor(rx, ry, df, wing) {
@@ -425,15 +432,29 @@ class Particle {
   // Origen "vivo" de una particula de ala: la rotamos alrededor de la raiz
   // del ala (rootX, 0) en coords locales del cuerpo, y despues aplicamos
   // la rotacion global del cuerpo (df.rot) y la traslacion al centro vivo.
-  // Cada ala alterna su signo segun w.side, y las hindwings (idx 2 y 3)
-  // van con un pequeño desfase respecto a las forewings.
+  // Cada behavior tiene su propio patron de aleteo: la estatica no aletea,
+  // el pulso va en rafagas, el flujo es continuo y la organica respira.
   flapOrigin(d) {
     const w = this.wing;
-    const phase = (w.idx >= 2) ? FLAP_HIND_PHASE : 0;
-    // Las dos alas de un mismo lado del cuerpo aletean al unisono;
-    // multiplicamos por w.side para que las alas izquierda y derecha
-    // suban/bajen de manera simetrica (espejo).
-    const ang = sin(frameCount * FLAP_FREQ + phase) * FLAP_AMP * w.side;
+    const params = FLAP_PARAMS[d.behavior] || FLAP_PARAMS.organic;
+
+    let ang = 0;
+    if (params.amp > 0) {
+      const phase = (w.idx >= 2) ? FLAP_HIND_PHASE : 0;
+      // Amplitud modulada segun behavior:
+      //  - pulse: rafagas que abren fuerte y descansan (cuadrado suave).
+      //  - organic: respira con df.pulse (subido y bajado del tamaño).
+      //  - flow: constante.
+      let amp = params.amp;
+      if (d.behavior === 'pulse') {
+        const beat = Math.max(0, sin(d.time * 2.2));
+        amp = params.amp + beat * 0.36;
+      } else if (d.behavior === 'organic') {
+        amp = params.amp * (0.55 + (d.pulse - 1) * 6);
+      }
+      ang = sin(frameCount * params.freq + phase) * amp * w.side;
+    }
+
     const cf = Math.cos(ang), sf = Math.sin(ang);
     // Rotar (lx, ly) alrededor de la raiz del ala (que esta en (rootX, 0)
     // en local antes de aplicar la rotacion global del cuerpo).
@@ -526,19 +547,26 @@ class Particle {
       }
     }
 
-    const force = this.behavior === 'static' ? 0.055
-                : this.behavior === 'pulse'  ? 0.042
-                : this.behavior === 'flow'   ? 0.036 : 0.022;
-    const damp  = this.behavior === 'static' ? 0.88
-                : this.behavior === 'pulse'  ? 0.87
-                : this.behavior === 'flow'   ? 0.89 : 0.84;
+    // La estatica es claramente estatica: alta adherencia al target y nada
+    // de ruido. El pulso es nervioso (alta fuerza); el flujo, fluido (media);
+    // la organica, suave (baja).
+    const force = this.behavior === 'static' ? 0.12
+                : this.behavior === 'pulse'  ? 0.055
+                : this.behavior === 'flow'   ? 0.038 : 0.024;
+    const damp  = this.behavior === 'static' ? 0.82
+                : this.behavior === 'pulse'  ? 0.86
+                : this.behavior === 'flow'   ? 0.90 : 0.85;
 
     this.vx += (targetX - this.x) * force;
     this.vy += (targetY - this.y) * force;
 
-    const ns = this.behavior === 'static' ? 0.0008 : 0.0025;
-    this.vx += (noise(this.nx + frameCount * 0.009) - 0.5) * ns * 55;
-    this.vy += (noise(this.ny + frameCount * 0.009) - 0.5) * ns * 55;
+    // Estatica: cero ruido. Resto: ruido pequeño solo en cuerpo (no en alas,
+    // que ya tienen su propio movimiento) — asi el aleteo se ve "limpio".
+    if (this.behavior !== 'static') {
+      const ns = this.wing ? 0.0008 : 0.0025;
+      this.vx += (noise(this.nx + frameCount * 0.009) - 0.5) * ns * 55;
+      this.vy += (noise(this.ny + frameCount * 0.009) - 0.5) * ns * 55;
+    }
 
     // Explosión
     if (isExploding && !this.exploded) {
