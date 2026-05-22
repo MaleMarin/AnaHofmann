@@ -226,8 +226,9 @@ const MORPHING_SPEED = 0.0022;
 // Velocidad acelerada cuando se pulsa la tecla T (transformacion masiva).
 const T_MORPH_SPEED = 0.020;
 // Amplitud del vuelo orgánico de cada libélula (% del canvas).
-const FLIGHT_AMP_X = 0.045;
-const FLIGHT_AMP_Y = 0.030;
+const FLIGHT_AMP_X = 0.11;
+const FLIGHT_AMP_Y = 0.07;
+const FLIGHT_EASE  = 0.045;
 
 // ─── CONFIGURACIÓN DE LAS 4 LIBÉLULAS ───────────────────────────
 // rot en radianes: cada una mira hacia una dirección distinta
@@ -314,12 +315,26 @@ function draw() {
     else if (df.behavior === 'organic') df.pulse = 1 + sin(df.time * 1.4) * 0.04;
     else df.pulse = 1;
 
-    // Drift de vuelo: Perlin lento -> movimiento de "hovering".
-    const flightT = df.time * 0.55;
-    const nxv = noise(df.flightSeedX, flightT) - 0.5;
-    const nyv = noise(df.flightSeedY, flightT + 100) - 0.5;
-    df.cx = df.baseCx + nxv * width  * FLIGHT_AMP_X * 2;
-    df.cy = df.baseCy + nyv * height * FLIGHT_AMP_Y * 2;
+    // Vuelo armónico: dos capas de Perlin lento (trayectoria amplia,
+    // movimiento de pájaro) + una sinusoide acoplada para sumar ondulación
+    // natural. Despues `lerp` suaviza el target evitando saltos robóticos.
+    const slowT = df.time * 0.35;
+    const slowX = (noise(df.flightSeedX,        slowT)        - 0.5) * 2;
+    const slowY = (noise(df.flightSeedY,        slowT + 100)  - 0.5) * 2;
+
+    const midT  = df.time * 0.9;
+    const midX  = (noise(df.flightSeedX + 500,  midT)         - 0.5) * 0.6;
+    const midY  = (noise(df.flightSeedY + 500,  midT + 100)   - 0.5) * 0.6;
+
+    const wave  = df.time * 0.55 + df.flightSeedX * 0.4;
+    const waveX = Math.sin(wave)       * 0.22;
+    const waveY = Math.cos(wave * 0.7) * 0.18;
+
+    const targetX = df.baseCx + (slowX + midX + waveX) * width  * FLIGHT_AMP_X;
+    const targetY = df.baseCy + (slowY + midY + waveY) * height * FLIGHT_AMP_Y;
+
+    df.cx = lerp(df.cx, targetX, FLIGHT_EASE);
+    df.cy = lerp(df.cy, targetY, FLIGHT_EASE);
   }
 
   for (const df of dragonflies) {
