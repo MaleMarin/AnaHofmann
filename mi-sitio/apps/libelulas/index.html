@@ -373,10 +373,11 @@ function draw() {
 
 // ─── PARTÍCULA ───────────────────────────────────────────────────
 // Frecuencia y amplitud del aleteo (compartidas por todas las libelulas).
-// Las alas se rotan alrededor de su raiz: amplitud ~13 grados, ~3 Hz a 60fps.
-const FLAP_FREQ = 0.32;
-const FLAP_AMP  = 0.22;
-const FLAP_HIND_PHASE = 0.65; // hindwings ligeramente desfasadas
+// Camara lenta: ~0.8 Hz, amplitud ~9 grados. Las hindwings van un poco
+// desfasadas respecto a las forewings.
+const FLAP_FREQ = 0.085;
+const FLAP_AMP  = 0.16;
+const FLAP_HIND_PHASE = 0.5;
 
 class Particle {
   constructor(rx, ry, df, wing) {
