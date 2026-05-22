@@ -67,7 +67,7 @@ body{
 }
 .proj{
   flex:1;
-  padding:28px 32px 0 0;
+  padding:28px 32px 0 32px;
   border-right:1px solid rgba(255,255,255,0.06);
   cursor:pointer;
   position:relative;
@@ -111,7 +111,7 @@ body{
   .pf{padding:36px 28px}
   .line-top{left:28px;right:28px}
   .projects{flex-direction:column;gap:0}
-  .proj{border-right:none;border-bottom:1px solid rgba(255,255,255,0.06);padding:24px 0}
+  .proj,.proj:first-child{border-right:none;border-bottom:1px solid rgba(255,255,255,0.06);padding:24px 0}
   .proj-arrow{right:0}
 }
 </style>
@@ -141,9 +141,6 @@ body{
         <div class="proj-name">Figura de Fibras</div>
         <div class="proj-arrow">↗</div>
       </a>
-      <div class="proj">
-        <div class="proj-name">—</div>
-      </div>
     </div>
   </div>
 
