@@ -226,9 +226,10 @@ const MORPHING_SPEED = 0.0022;
 // Velocidad acelerada cuando se pulsa la tecla T (transformacion masiva).
 const T_MORPH_SPEED = 0.020;
 // Amplitud del vuelo orgánico de cada libélula (% del canvas).
-const FLIGHT_AMP_X = 0.11;
-const FLIGHT_AMP_Y = 0.07;
-const FLIGHT_EASE  = 0.045;
+const FLIGHT_AMP_X = 0.10;
+const FLIGHT_AMP_Y = 0.065;
+// Más bajo = vuelo más suave/viscoso (la libélula se acerca más lento al target).
+const FLIGHT_EASE  = 0.020;
 
 // ─── CONFIGURACIÓN DE LAS 4 LIBÉLULAS ───────────────────────────
 // rot en radianes: cada una mira hacia una dirección distinta
@@ -309,29 +310,27 @@ function draw() {
 
   // Actualizamos el centro de cada libélula con un pequeño vuelo orgánico.
   for (const df of dragonflies) {
-    df.time += 0.01;
+    // Ciclo temporal lento: el patrón de vuelo evoluciona despacio,
+    // tipo planeo de pájaro.
+    df.time += 0.006;
     if (df.behavior === 'pulse')   df.pulse = 1 + sin(df.time * 2.2) * 0.14;
     else if (df.behavior === 'flow')    df.pulse = 1 + sin(df.time * 0.6) * 0.07;
     else if (df.behavior === 'organic') df.pulse = 1 + sin(df.time * 1.4) * 0.04;
     else df.pulse = 1;
 
-    // Vuelo armónico: dos capas de Perlin lento (trayectoria amplia,
-    // movimiento de pájaro) + una sinusoide acoplada para sumar ondulación
-    // natural. Despues `lerp` suaviza el target evitando saltos robóticos.
-    const slowT = df.time * 0.35;
+    // Vuelo armónico: una capa de Perlin muy lento define la trayectoria
+    // (amplia, planeada) y una capa media discreta agrega ondulación sutil.
+    // Sin sinusoide rápida: el lerp con FLIGHT_EASE bajo hace el resto.
+    const slowT = df.time * 0.25;
     const slowX = (noise(df.flightSeedX,        slowT)        - 0.5) * 2;
     const slowY = (noise(df.flightSeedY,        slowT + 100)  - 0.5) * 2;
 
-    const midT  = df.time * 0.9;
-    const midX  = (noise(df.flightSeedX + 500,  midT)         - 0.5) * 0.6;
-    const midY  = (noise(df.flightSeedY + 500,  midT + 100)   - 0.5) * 0.6;
+    const midT  = df.time * 0.55;
+    const midX  = (noise(df.flightSeedX + 500,  midT)         - 0.5) * 0.35;
+    const midY  = (noise(df.flightSeedY + 500,  midT + 100)   - 0.5) * 0.35;
 
-    const wave  = df.time * 0.55 + df.flightSeedX * 0.4;
-    const waveX = Math.sin(wave)       * 0.22;
-    const waveY = Math.cos(wave * 0.7) * 0.18;
-
-    const targetX = df.baseCx + (slowX + midX + waveX) * width  * FLIGHT_AMP_X;
-    const targetY = df.baseCy + (slowY + midY + waveY) * height * FLIGHT_AMP_Y;
+    const targetX = df.baseCx + (slowX + midX) * width  * FLIGHT_AMP_X;
+    const targetY = df.baseCy + (slowY + midY) * height * FLIGHT_AMP_Y;
 
     df.cx = lerp(df.cx, targetX, FLIGHT_EASE);
     df.cy = lerp(df.cy, targetY, FLIGHT_EASE);
