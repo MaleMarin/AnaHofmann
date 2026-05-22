@@ -268,12 +268,15 @@ function setup() {
       pulse: 1,
     };
 
+    // Importante: agregamos la libelula al array ANTES de crear sus
+    // particulas; en el constructor de Particle se busca su df por id
+    // en `dragonflies` y si todavia no esta, la posicion inicial es NaN.
+    dragonflies.push(df);
+
     for (let i = 0; i < NUM_PARTICLES; i++) {
       const rp = random(df.pixels);
       df.particles.push(new Particle(rp.x, rp.y, df));
     }
-
-    dragonflies.push(df);
   }
 
   loop();
