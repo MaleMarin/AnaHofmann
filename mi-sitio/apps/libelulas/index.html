@@ -24,9 +24,9 @@ canvas{display:block;cursor:crosshair}
   <span class="sep">─────────────</span>
   <span>Clic → Explosión global</span>
   <span>1-4 → Explotar libélula</span>
-  <span>M → Activar/desactivar transformación</span>
-  <span>T → Transformación masiva</span>
-  <span>S → Guardar imagen</span>
+  <span>F → Fluir entre libélulas</span>
+  <span>T → Transformar todas</span>
+  <span>G → Guardar imagen</span>
   <span>R → Reiniciar</span>
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js"></script>
@@ -618,8 +618,10 @@ function mousePressed() {
 }
 
 function keyPressed() {
-  if (key === 's' || key === 'S') saveCanvas('libelulas', 'png');
+  // G = Guardar imagen
+  if (key === 'g' || key === 'G') saveCanvas('libelulas', 'png');
 
+  // R = Reiniciar
   if (key === 'r' || key === 'R') {
     for (const df of dragonflies) {
       df.particles = [];
@@ -644,11 +646,12 @@ function keyPressed() {
     }
   }
 
-  if (key === 'm' || key === 'M') morphingEnabled = !morphingEnabled;
+  // F = Fluir entre libelulas (toggle del morph aleatorio sutil entre todas)
+  if (key === 'f' || key === 'F') morphingEnabled = !morphingEnabled;
 
+  // T = Transformar todas (cada particula salta a otra libelula a alta
+  // velocidad y se queda alli, commit = true).
   if (key === 't' || key === 'T') {
-    // Transformacion masiva: cada particula salta a otra libelula a una
-    // velocidad mucho mayor y se queda alli (commit = true).
     for (const df of dragonflies) {
       for (const p of df.particles) {
         if (!p.isMorphing) {
