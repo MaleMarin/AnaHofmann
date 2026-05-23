@@ -290,6 +290,12 @@ function setup() {
       particles: [],
       time: random(1000),
       pulse: 1,
+      // Maniobra activa (CRUISE / HOVER / TURN / REVERSE) y cronometro.
+      // Cada libelula entra en maniobras espontaneas: hover, giro de 180
+      // o vuelo en reversa, igual que las libelulas reales gracias a sus
+      // 4 alas independientes.
+      maneuver: { type: 'CRUISE', t: 0, dur: 2 + Math.random() * 3 },
+      turnTarget: cfg.rot,
     };
 
     // Importante: agregamos la libelula al array ANTES de crear sus
@@ -340,6 +346,39 @@ function draw() {
     else if (df.behavior === 'organic') df.pulse = 1 + sin(df.time * 1.4) * 0.06;
     else df.pulse = 1;
 
+    // ─── MANIOBRAS espontaneas (no se aplican a la estatica) ─────────
+    // Cada libelula entra en una maniobra cada cierto tiempo: HOVER
+    // (suspendida en el aire), TURN (giro de 180 en pocos aleteos) o
+    // REVERSE (vuelo hacia atras). CRUISE es el modo por defecto.
+    if (df.behavior !== 'static') {
+      df.maneuver.t += 1 / 60;
+      if (df.maneuver.t >= df.maneuver.dur) {
+        const r = Math.random();
+        let next;
+        if      (r < 0.14) next = 'HOVER';
+        else if (r < 0.24) next = 'TURN';
+        else if (r < 0.32) next = 'REVERSE';
+        else               next = 'CRUISE';
+        const dur = (next === 'CRUISE') ? 3 + Math.random() * 4
+                                        : 1.5 + Math.random() * 1.5;
+        df.maneuver = { type: next, t: 0, dur };
+        if (next === 'TURN') {
+          // ~180 grados en una direccion aleatoria.
+          df.turnTarget = df.rot + Math.PI * (Math.random() < 0.5 ? 1 : -1);
+        }
+      }
+      // Suaviza el cambio de rot en TURN (3 aleteos ≈ 0.6s).
+      if (df.maneuver.type === 'TURN') {
+        df.rot = lerp(df.rot, df.turnTarget, 0.10);
+      }
+    }
+
+    // Modificadores de vuelo segun la maniobra.
+    let ampMul = 1, dirSign = 1;
+    if (df.maneuver.type === 'HOVER')        ampMul = 0.18; // casi quieta
+    else if (df.maneuver.type === 'REVERSE') dirSign = -1;  // vuela al opuesto
+    else if (df.maneuver.type === 'TURN')    ampMul = 0.55; // se acomoda
+
     // Vuelo armónico: una capa de Perlin muy lento define la trayectoria
     // (amplia, planeada) y una capa media discreta agrega ondulación sutil.
     // Sin sinusoide rápida: el lerp con FLIGHT_EASE bajo hace el resto.
@@ -351,8 +390,8 @@ function draw() {
     const midX  = (noise(df.flightSeedX + 500,  midT)         - 0.5) * 0.35;
     const midY  = (noise(df.flightSeedY + 500,  midT + 100)   - 0.5) * 0.35;
 
-    const targetX = df.baseCx + (slowX + midX) * width  * FLIGHT_AMP_X;
-    const targetY = df.baseCy + (slowY + midY) * height * FLIGHT_AMP_Y;
+    const targetX = df.baseCx + dirSign * (slowX + midX) * width  * FLIGHT_AMP_X * ampMul;
+    const targetY = df.baseCy + dirSign * (slowY + midY) * height * FLIGHT_AMP_Y * ampMul;
 
     df.cx = lerp(df.cx, targetX, FLIGHT_EASE);
     df.cy = lerp(df.cy, targetY, FLIGHT_EASE);
@@ -377,14 +416,20 @@ function draw() {
 //  - static  ("Forma Estatica"):       SIN aleteo, alas quietas.
 //  - pulse   ("Pulso Ritmico"):        aleteo en rafagas (latido y pausa).
 //  - flow    ("Flujo Fluido"):         aleteo continuo, amplio y constante.
-// Las hindwings van con un pequeño desfase respecto a las forewings.
-const FLAP_HIND_PHASE = 0.55;
+//
+// Las 4 alas son INDEPENDIENTES (anatomicamente cada una conecta a un grupo
+// muscular distinto en la libelula real). Por defecto las traseras
+// (hindwings) van en CONTRAFASE (~PI) respecto a las delanteras, que es el
+// patron de vuelo crucero real. En modo HOVER pasan a estar en fase (en
+// libelulas reales, asi se quedan suspendidas en el aire).
 const FLAP_PARAMS = {
-  organic: { freq: 0.055, amp: 0.14 },
-  static:  { freq: 0.0,   amp: 0.0  },
-  pulse:   { freq: 0.12,  amp: 0.10 }, // amp se modula extra con el latido
-  flow:    { freq: 0.10,  amp: 0.22 },
+  organic: { freq: 0.10, amp: 0.18 },
+  static:  { freq: 0.0,  amp: 0.0  },
+  pulse:   { freq: 0.16, amp: 0.12 }, // amp se modula extra con el latido
+  flow:    { freq: 0.13, amp: 0.26 },
 };
+// Micro-variacion de fase por ala (rompe la simetria perfecta).
+const WING_PHASE_JITTER = [0.0, 0.05, Math.PI, Math.PI + 0.06];
 
 class Particle {
   constructor(rx, ry, df, wing) {
@@ -432,19 +477,24 @@ class Particle {
   // Origen "vivo" de una particula de ala: la rotamos alrededor de la raiz
   // del ala (rootX, 0) en coords locales del cuerpo, y despues aplicamos
   // la rotacion global del cuerpo (df.rot) y la traslacion al centro vivo.
-  // Cada behavior tiene su propio patron de aleteo: la estatica no aletea,
-  // el pulso va en rafagas, el flujo es continuo y la organica respira.
+  // Las 4 alas son independientes (anatomia real): hindwings en contrafase
+  // (~PI) con forewings en vuelo crucero; en HOVER pasan a estar en fase
+  // (para suspenderse en el aire), y en TURN las alas de un lado del cuerpo
+  // aletean con mas amplitud que las del otro (asimetria que hace girar).
   flapOrigin(d) {
     const w = this.wing;
     const params = FLAP_PARAMS[d.behavior] || FLAP_PARAMS.organic;
 
     let ang = 0;
     if (params.amp > 0) {
-      const phase = (w.idx >= 2) ? FLAP_HIND_PHASE : 0;
-      // Amplitud modulada segun behavior:
-      //  - pulse: rafagas que abren fuerte y descansan (cuadrado suave).
-      //  - organic: respira con df.pulse (subido y bajado del tamaño).
-      //  - flow: constante.
+      // Fase por ala: en CRUISE/REVERSE/TURN hindwings van en contrafase
+      // (PI); en HOVER todas van en fase para mantener altura.
+      const inHover = d.maneuver && d.maneuver.type === 'HOVER';
+      const hindOffset = inHover ? 0 : Math.PI;
+      const isHind = w.idx >= 2;
+      const phase = (isHind ? hindOffset : 0) + WING_PHASE_JITTER[w.idx];
+
+      // Amplitud base por behavior (con su modulacion propia).
       let amp = params.amp;
       if (d.behavior === 'pulse') {
         const beat = Math.max(0, sin(d.time * 2.2));
@@ -452,7 +502,28 @@ class Particle {
       } else if (d.behavior === 'organic') {
         amp = params.amp * (0.55 + (d.pulse - 1) * 6);
       }
-      ang = sin(frameCount * params.freq + phase) * amp * w.side;
+
+      // Modificadores por maniobra.
+      if (d.maneuver) {
+        if (d.maneuver.type === 'HOVER') {
+          // Mas frecuencia visual y menos amplitud => ala "vibra" para
+          // sostener el peso, igual que una libelula al hovering.
+          amp *= 0.7;
+        } else if (d.maneuver.type === 'TURN') {
+          // Asimetria izq/der: el lado +1 aletea fuerte, el -1 mas suave.
+          amp *= (w.side > 0) ? 1.35 : 0.55;
+        } else if (d.maneuver.type === 'REVERSE') {
+          // En reversa la libelula real invierte el angulo de ataque:
+          // visualizamos un pequeño desplazamiento de fase.
+          amp *= 0.85;
+        }
+      }
+
+      const freq = (d.maneuver && d.maneuver.type === 'HOVER')
+        ? params.freq * 1.4
+        : params.freq;
+
+      ang = sin(frameCount * freq + phase) * amp * w.side;
     }
 
     const cf = Math.cos(ang), sf = Math.sin(ang);
