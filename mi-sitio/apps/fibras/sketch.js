@@ -39,8 +39,10 @@ function buildScene() {
   const bh = Math.min(height * 0.82, width * 0.42);
   const bw = bh * 0.55;
   const offset = width * FIGURE_OFFSET;
-  bodies.push(buildFigure(-offset, 0, bw, bh, 0));
-  bodies.push(buildFigure( offset, 0, bw, bh, 1));
+  // Coords absolutas: centradas en la ventana, separadas por offset.
+  const cy = height / 2;
+  bodies.push(buildFigure(width / 2 - offset, cy, bw, bh, 0));
+  bodies.push(buildFigure(width / 2 + offset, cy, bw, bh, 1));
 }
 
 // ────────────────────────────────────────────────────────────────
