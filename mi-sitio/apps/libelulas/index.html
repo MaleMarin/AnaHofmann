@@ -8,21 +8,21 @@
 *{margin:0;padding:0;overflow:hidden}
 body{background:#060d1a;font-family:'Courier New',monospace}
 canvas{display:block;cursor:crosshair}
-.title{position:fixed;top:28px;left:50%;transform:translateX(-50%);color:rgba(220,230,255,0.6);font-size:17px;letter-spacing:5px;text-transform:uppercase;pointer-events:none;font-weight:400}
-.info{position:fixed;bottom:24px;left:24px;color:rgba(220,230,255,0.78);font-size:15px;letter-spacing:1.2px;text-transform:uppercase;pointer-events:none;line-height:1.9;font-weight:500;text-shadow:0 1px 4px rgba(0,0,0,0.7)}
+.title{position:fixed;top:28px;left:50%;transform:translateX(-50%);color:rgba(220,230,255,0.6);font-size:14px;letter-spacing:4.5px;text-transform:uppercase;pointer-events:none;font-weight:400}
+.info{position:fixed;bottom:22px;left:22px;color:rgba(220,230,255,0.78);font-size:12.5px;letter-spacing:1px;text-transform:uppercase;pointer-events:none;line-height:1.75;font-weight:500;text-shadow:0 1px 4px rgba(0,0,0,0.7)}
 .info span{display:block}
-.info .head{font-weight:600;margin-bottom:2px}
-.info .key{display:inline-block;min-width:62px;color:rgba(255,255,255,0.95);font-weight:700}
-.info .sep{opacity:0.45;margin:10px 0;letter-spacing:0}
+.info .head{font-weight:600;margin-bottom:1px}
+.info .key{display:inline-block;min-width:54px;color:rgba(255,255,255,0.95);font-weight:700}
+.info .sep{opacity:0.4;margin:9px 0;letter-spacing:0}
 </style>
 </head>
 <body>
 <div class="title">Libélulas Vectoriales</div>
 <div class="info">
-  <span class="head" style="color:#00f9d4">Libélula 1 · Respiración Orgánica</span>
-  <span class="head" style="color:#ff6b35">Libélula 2 · Forma Estática</span>
-  <span class="head" style="color:#b4ff00">Libélula 3 · Pulso Rítmico</span>
-  <span class="head" style="color:#dc3cff">Libélula 4 · Flujo Fluido</span>
+  <span class="head" style="color:#00f9d4">Libélula 1 · Respira Lento</span>
+  <span class="head" style="color:#ff6b35">Libélula 2 · Forma Quieta</span>
+  <span class="head" style="color:#b4ff00">Libélula 3 · Latido Rítmico</span>
+  <span class="head" style="color:#dc3cff">Libélula 4 · Flujo Continuo</span>
   <span class="sep">─────────────────────</span>
   <span><span class="key">Clic</span>→ Explosión global</span>
   <span><span class="key">1 – 4</span>→ Explotar libélula</span>
@@ -343,10 +343,16 @@ function draw() {
     // Ciclo temporal lento: el patrón de vuelo evoluciona despacio,
     // tipo planeo de pájaro.
     df.time += 0.006;
-    if (df.behavior === 'pulse')   df.pulse = 1 + sin(df.time * 2.2) * 0.20;
-    else if (df.behavior === 'flow')    df.pulse = 1 + sin(df.time * 0.6) * 0.07;
-    else if (df.behavior === 'organic') df.pulse = 1 + sin(df.time * 1.4) * 0.06;
-    else df.pulse = 1;
+    if (df.behavior === 'pulse') {
+      // Latido tipo corazon: dos tics rapidos + pausa, no una sinusoide plana.
+      const beat = Math.pow(Math.max(0, Math.sin(df.time * 2.6)), 3);
+      df.pulse = 1 + beat * 0.34;
+    } else if (df.behavior === 'flow') {
+      df.pulse = 1 + sin(df.time * 0.55) * 0.09;
+    } else if (df.behavior === 'organic') {
+      // Respiracion amplia y MUY lenta, casi humana.
+      df.pulse = 1 + sin(df.time * 0.9) * 0.12;
+    } else df.pulse = 1;
 
     // ─── MANIOBRAS espontaneas (no se aplican a la estatica) ─────────
     // Cada libelula entra en una maniobra cada cierto tiempo: HOVER
@@ -377,7 +383,8 @@ function draw() {
 
     // Modificadores de vuelo segun la maniobra.
     let ampMul = 1, dirSign = 1;
-    if (df.maneuver.type === 'HOVER')        ampMul = 0.18; // casi quieta
+    if (df.behavior === 'static')            ampMul = 0;    // QUIETA: ni se mueve
+    else if (df.maneuver.type === 'HOVER')   ampMul = 0.18; // casi quieta
     else if (df.maneuver.type === 'REVERSE') dirSign = -1;  // vuela al opuesto
     else if (df.maneuver.type === 'TURN')    ampMul = 0.55; // se acomoda
 
@@ -413,11 +420,12 @@ function draw() {
 }
 
 // ─── PARTÍCULA ───────────────────────────────────────────────────
-// Parametros de aleteo por behavior. Cada libelula respeta su leyenda:
-//  - organic ("Respiracion Organica"): aleteo suave, ligado a la respiracion.
-//  - static  ("Forma Estatica"):       SIN aleteo, alas quietas.
-//  - pulse   ("Pulso Ritmico"):        aleteo en rafagas (latido y pausa).
-//  - flow    ("Flujo Fluido"):         aleteo continuo, amplio y constante.
+// Parametros de aleteo por behavior. Cada libelula respeta su leyenda y
+// se diferencia claramente de las demas:
+//  - organic ("Respira Lento"):   aleteo MUY suave y lento, ligado a la respiracion.
+//  - static  ("Forma Quieta"):    SIN aleteo, alas totalmente quietas, no vuela.
+//  - pulse   ("Latido Ritmico"):  aleteo en RAFAGAS (latido + pausa), tipo corazon.
+//  - flow    ("Flujo Continuo"):  aleteo amplio y constante, las particulas ondulan.
 //
 // Las 4 alas son INDEPENDIENTES (anatomicamente cada una conecta a un grupo
 // muscular distinto en la libelula real). Por defecto las traseras
@@ -425,10 +433,10 @@ function draw() {
 // patron de vuelo crucero real. En modo HOVER pasan a estar en fase (en
 // libelulas reales, asi se quedan suspendidas en el aire).
 const FLAP_PARAMS = {
-  organic: { freq: 0.10, amp: 0.18 },
-  static:  { freq: 0.0,  amp: 0.0  },
-  pulse:   { freq: 0.16, amp: 0.12 }, // amp se modula extra con el latido
-  flow:    { freq: 0.13, amp: 0.26 },
+  organic: { freq: 0.07, amp: 0.16 },   // lento y sereno
+  static:  { freq: 0.0,  amp: 0.0  },   // sin movimiento
+  pulse:   { freq: 0.18, amp: 0.10 },   // rapido + amp se dispara con el latido
+  flow:    { freq: 0.11, amp: 0.30 },   // amplio, continuo
 };
 // Micro-variacion de fase por ala (rompe la simetria perfecta).
 const WING_PHASE_JITTER = [0.0, 0.05, Math.PI, Math.PI + 0.06];
@@ -499,10 +507,13 @@ class Particle {
       // Amplitud base por behavior (con su modulacion propia).
       let amp = params.amp;
       if (d.behavior === 'pulse') {
-        const beat = Math.max(0, sin(d.time * 2.2));
-        amp = params.amp + beat * 0.36;
+        // Aleteo en rafagas, sincronizado con el latido del cuerpo:
+        // potencia 3 = pico estrecho + pausa, igual que un corazon.
+        const beat = Math.pow(Math.max(0, sin(d.time * 2.6)), 3);
+        amp = params.amp + beat * 0.46;
       } else if (d.behavior === 'organic') {
-        amp = params.amp * (0.55 + (d.pulse - 1) * 6);
+        // Aleteo ligado a la respiracion: crece y decrece con el inhalar/exhalar.
+        amp = params.amp * (0.55 + (d.pulse - 1) * 4);
       }
 
       // Modificadores por maniobra.
@@ -608,11 +619,13 @@ class Particle {
         targetX = cx + cos(a) * d * ownDf.pulse;
         targetY = cy + sin(a) * d * ownDf.pulse;
       } else if (this.behavior === 'flow') {
-        targetX = origin.x + sin(this.nx + frameCount * 0.018) * 12;
-        targetY = origin.y + cos(this.ny + frameCount * 0.013) * 9;
+        // Flujo MUY visible: cada particula ondula amplio, como agua en corriente.
+        targetX = origin.x + sin(this.nx + frameCount * 0.022) * 22;
+        targetY = origin.y + cos(this.ny + frameCount * 0.016) * 17;
       } else if (this.behavior === 'organic') {
-        targetX = origin.x + sin(this.nx * 0.5 + frameCount * 0.008) * 5;
-        targetY = origin.y + cos(this.ny * 0.5 + frameCount * 0.006) * 4;
+        // Respira con todo el cuerpo (oscilacion lenta, amplia y armonica).
+        targetX = origin.x + sin(this.nx * 0.4 + frameCount * 0.006) * 8;
+        targetY = origin.y + cos(this.ny * 0.4 + frameCount * 0.005) * 7;
       } else {
         // static: target = origen vivo (sigue al vuelo).
         targetX = origin.x;
