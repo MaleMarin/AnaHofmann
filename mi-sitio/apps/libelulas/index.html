@@ -28,7 +28,7 @@ canvas{display:block;cursor:crosshair}
   <div class="controls">
     <span class="key">Clic</span><span class="desc">→ Explosión total</span>
     <span class="key">1 – 4</span><span class="desc">→ Explotar libélula</span>
-    <span class="key">F</span><span class="desc">→ Fluir entre libélulas</span>
+    <span class="key">F</span><span class="desc">→ Intercambio entre libélulas</span>
     <span class="key">T</span><span class="desc">→ Transformar todas</span>
     <span class="key">G</span><span class="desc">→ Guardar imagen</span>
     <span class="key">R</span><span class="desc">→ Reiniciar</span>
@@ -242,7 +242,12 @@ function dragonfly(cx, cy, scale, rot = 0) {
 
 // ─── VARIABLES GLOBALES ──────────────────────────────────────────
 let dragonflies = [];
+// Trickle de morphs aleatorios de fondo (vida sutil). Siempre activo.
 let morphingEnabled = true;
+// F (intercambio): cuantas particulas migran por libelula y a que velocidad.
+// Mas chico = morph mas largo (mas tiempo viendo los hilos entre libelulas).
+const F_MIGRANTS_PER_DF = 320;
+const F_MORPH_SPEED     = 0.0050;
 // Explosion en 3 fases (en frames). Cada libelula tiene su propio estado
 // `df.expl` para que la animacion sea independiente y radial (no sesgada
 // al mouse). Las particulas se contraen, despues estallan en TODAS las
@@ -778,8 +783,23 @@ function keyPressed() {
     }
   }
 
-  // F = Fluir entre libelulas (toggle del morph aleatorio sutil entre todas)
-  if (key === 'f' || key === 'F') morphingEnabled = !morphingEnabled;
+  // F = Intercambio entre libelulas: dispara una OLA visible de particulas
+  // que viajan desde cada libelula hacia las otras (a velocidad lenta para
+  // que se vean los hilos cruzando el lienzo) y vuelven a su libelula.
+  if (key === 'f' || key === 'F') {
+    for (const df of dragonflies) {
+      const others = dragonflies.filter(d => d.id !== df.id);
+      if (!others.length) continue;
+      // Selecciona N particulas al azar que NO esten ya migrando.
+      const candidates = df.particles.filter(p => !p.isMorphing);
+      const n = Math.min(F_MIGRANTS_PER_DF, candidates.length);
+      for (let i = 0; i < n; i++) {
+        const idx = Math.floor(Math.random() * candidates.length);
+        const p = candidates.splice(idx, 1)[0];
+        p.startMorph(random(others), F_MORPH_SPEED, false);
+      }
+    }
+  }
 
   // T = Transformar todas (cada particula salta a otra libelula a alta
   // velocidad y se queda alli, commit = true).
