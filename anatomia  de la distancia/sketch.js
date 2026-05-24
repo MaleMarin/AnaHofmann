@@ -59,12 +59,15 @@ function buildFigure(cx, cy, bodyW, bodyH) {
     }
 
     const meanR = (r0 + r1) * 0.5;
+    // Solo conservamos las fibras del anillo rojo (interior del corazon).
+    // Se descartan magenta, azul y blanco -> la composicion queda limpia,
+    // unicamente el cuerpo rojo del corazon en cada figura.
+    if (meanR >= 0.30) continue;
     const col = colorForDist(meanR);
 
     // Control points SOBRE la linea p0->p1 con offset perpendicular en el
     // MISMO sentido (mismo signo para cp1 y cp2). Esto produce arcos
-    // limpios en vez de zigzags/eses. Las fibras del borde (anillo blanco)
-    // usan curvatura mas chica para que no salgan "chuecas".
+    // limpios en vez de zigzags/eses.
     const dxL = p1x - p0x;
     const dyL = p1y - p0y;
     const lenL = Math.sqrt(dxL * dxL + dyL * dyL) || 1;
