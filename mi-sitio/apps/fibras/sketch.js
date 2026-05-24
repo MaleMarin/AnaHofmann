@@ -61,16 +61,37 @@ function buildFigure(cx, cy, bodyW, bodyH) {
     const meanR = (r0 + r1) * 0.5;
     const col = colorForDist(meanR);
 
+    // Control points SOBRE la linea p0->p1 con offset perpendicular en el
+    // MISMO sentido (mismo signo para cp1 y cp2). Esto produce arcos
+    // limpios en vez de zigzags/eses. Las fibras del borde (anillo blanco)
+    // usan curvatura mas chica para que no salgan "chuecas".
+    const dxL = p1x - p0x;
+    const dyL = p1y - p0y;
+    const lenL = Math.sqrt(dxL * dxL + dyL * dyL) || 1;
+    const perpX = -dyL / lenL;
+    const perpY =  dxL / lenL;
+    const isOuter = meanR >= 0.62;
+    const curvMag = isOuter ? b * 0.28 : b * 0.65;
+    const curvSign = Math.random() < 0.5 ? -1 : 1;
+    const curv1 = curvSign * curvMag * (0.55 + Math.random() * 0.45);
+    const curv2 = curvSign * curvMag * (0.55 + Math.random() * 0.45);
+    const mid1x = p0x + dxL * 0.33;
+    const mid1y = p0y + dyL * 0.33;
+    const mid2x = p0x + dxL * 0.66;
+    const mid2y = p0y + dyL * 0.66;
+
     fibers.push({
       p0x, p0y, p1x, p1y,
-      cp1x: (p0x + p1x) * 0.5 + (Math.random() - 0.5) * b * 1.2,
-      cp1y: (p0y + p1y) * 0.5 + (Math.random() - 0.5) * b * 1.2,
-      cp2x: (p0x + p1x) * 0.5 + (Math.random() - 0.5) * b * 1.2,
-      cp2y: (p0y + p1y) * 0.5 + (Math.random() - 0.5) * b * 1.2,
+      cp1x: mid1x + perpX * curv1,
+      cp1y: mid1y + perpY * curv1,
+      cp2x: mid2x + perpX * curv2,
+      cp2y: mid2y + perpY * curv2,
       r: col[0], g: col[1], bb: col[2],
       alpha: 60 + Math.random() * 80,
       weight: 0.55 + Math.random() * 0.6,
       noiseOff: Math.random() * 1000,
+      // Las fibras del borde se mueven menos: nada de ondulaciones bruscas.
+      noiseAmp: isOuter ? 8 : 22,
     });
   }
 
@@ -109,10 +130,11 @@ function draw() {
   const t = frameCount * 0.005;
   for (let i = 0; i < fibers.length; i++) {
     const f = fibers[i];
-    const n1 = (noise(f.noiseOff, t) - 0.5) * 26;
-    const n2 = (noise(f.noiseOff + 50, t) - 0.5) * 26;
-    const n3 = (noise(f.noiseOff + 100, t) - 0.5) * 26;
-    const n4 = (noise(f.noiseOff + 150, t) - 0.5) * 26;
+    const na = f.noiseAmp;
+    const n1 = (noise(f.noiseOff,       t) - 0.5) * na;
+    const n2 = (noise(f.noiseOff + 50,  t) - 0.5) * na;
+    const n3 = (noise(f.noiseOff + 100, t) - 0.5) * na;
+    const n4 = (noise(f.noiseOff + 150, t) - 0.5) * na;
     stroke(f.r, f.g, f.bb, f.alpha);
     strokeWeight(f.weight);
     bezier(f.p0x, f.p0y,
