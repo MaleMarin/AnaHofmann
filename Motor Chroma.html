@@ -129,7 +129,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
           <div class="setting"><div class="sl-row"><span>Grosor del borde<span class="setting-copy">Controla qué tan marcado se ve el contorno.</span></span><span class="sl-val" id="vs">0.05</span></div><input type="range" id="sl-s" min="0.05" max="30" step="0.05" value="0.05"></div>
           <div class="setting"><div class="sl-row"><span>Transparencia del color<span class="setting-copy">Baja el valor para mezclar visualmente las capas.</span></span><span class="sl-val" id="va">255</span></div><input type="range" id="sl-a" min="30" max="255" value="255"></div>
           <label class="tg-row"><span class="tg-label">Ver contornos<span class="tg-copy">Muestra u oculta los bordes de las formas.</span></span><div class="tg"><input type="checkbox" id="tog-l" checked><span class="tg-t"></span></div></label>
-          <label class="tg-row"><span class="tg-label">Pintar formas<span class="tg-copy">Si se apaga, queda solo el dibujo de líneas.</span></span><div class="tg"><input type="checkbox" id="tog-f" checked><span class="tg-t"></span></div></label>
+          <label class="tg-row"><span class="tg-label">Rellenar con color<span class="tg-copy">Apágalo para ver solo el dibujo de líneas, sin color adentro.</span></span><div class="tg"><input type="checkbox" id="tog-f" checked><span class="tg-t"></span></div></label>
           <label class="tg-row"><span class="tg-label">Contornos con color<span class="tg-copy">Usa colores de la paleta en lugar de negro.</span></span><div class="tg"><input type="checkbox" id="tog-c"><span class="tg-t"></span></div></label>
         </div>
       </div>
@@ -291,7 +291,11 @@ function windowResized(){
 
 function drawArt(){
   background(255);
-  if(showLines){stroke(0,0,0,60);strokeWeight(sw);}else{noStroke();}
+  // Si "Rellenar con color" esta apagado, los contornos deben verse para que
+  // se aprecie el dibujo de lineas; si no, todo queda blanco.
+  const lineSw=filling?sw:Math.max(sw,0.7);
+  const lineAlpha=filling?60:180;
+  if(showLines){stroke(0,0,0,lineAlpha);strokeWeight(lineSw);}else{noStroke();}
   angleMode(DEGREES);
   const end=height/2+500;
   for(let i=0;i<layers;i++){
