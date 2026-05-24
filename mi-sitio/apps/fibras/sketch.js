@@ -97,6 +97,12 @@ function buildFigure(cx, cy, bodyW, bodyH) {
   }
 
   for (let i = 0; i < CORE_FIBERS; i++) {
+    // Cada hilo del corazon tiene un destino FIJO de enredo (angulo + radio
+    // propios, no aleatorios por frame). Al enredarse cp1 y cp2 se deslizan
+    // hacia esos puntos como un ovillo de lana que se va armando, y al
+    // desenredarse vuelven en linea recta a la curva limpia del corazon.
+    const angA = Math.random() * TWO_PI;
+    const angB = angA + Math.PI + (Math.random() - 0.5) * 0.7;
     cores.push({
       cx, cy, heartSize,
       // side = +1 figura derecha, -1 figura izquierda. Sirve para que los
@@ -105,12 +111,9 @@ function buildFigure(cx, cy, bodyW, bodyH) {
       bodyA: a, bodyB: b,
       t0: Math.random() * TWO_PI,
       t1: Math.random() * TWO_PI,
-      // Direcciones de "enredo": al enredarse cada fibra del corazon se
-      // desvia con su propia direccion aleatoria, no todas hacia el mismo
-      // lado. Esto evita el efecto de ola unidireccional.
-      tangleDirX: (Math.random() - 0.5) * 2,
-      tangleDirY: (Math.random() - 0.5) * 2,
-      tanglePhase: Math.random() * TWO_PI,
+      tangleAngA: angA, tangleAngB: angB,
+      tangleRadA: 0.55 + Math.random() * 0.75,
+      tangleRadB: 0.55 + Math.random() * 0.75,
       offX: (Math.random() - 0.5) * heartSize * 0.35,
       offY: (Math.random() - 0.5) * heartSize * 0.35,
       noiseOff: Math.random() * 1000,
@@ -146,45 +149,54 @@ function draw() {
 
   // ── Corazones rojos: laten, entran/salen del cuerpo, se enredan/desenredan.
   //
-  // Tres ciclos independientes que se combinan:
-  //  - latido rapido (pulse): hace que el corazon respire de tamaño.
-  //  - viaje in/out:           el corazon entra al cuerpo y sale (eje x).
-  //                            inOut > 0  -> AFUERA, asomado hacia la otra figura.
-  //                            inOut < 0  -> ADENTRO, hundido en el cuerpo.
-  //  - enredo (tangle):        cuando esta DENTRO se enreda (caos de control points);
-  //                            cuando SALE se desenreda (curvas limpias del corazon).
+  // Tres ciclos independientes:
+  //  - latido (pulse):  respiracion rapida del tamaño.
+  //  - viaje in/out:    el corazon entra y sale del cuerpo (eje x).
+  //                     inOut > 0  -> AFUERA (asomado hacia la otra figura).
+  //                     inOut < 0  -> ADENTRO (hundido en el cuerpo).
+  //  - ovillo:          cuando esta DENTRO se enreda como un ovillo de lana
+  //                     (cada hilo va deslizandose hacia un destino FIJO);
+  //                     al salir se desenreda LINEAL y LENTAMENTE a la curva
+  //                     limpia del corazon. No hay ruido caotico.
   const pulse  = 1 + Math.sin(frameCount * 0.05) * 0.18;
-  const inOut  = Math.sin(frameCount * 0.013);            // -1 (dentro) .. +1 (afuera)
-  const tangle = Math.max(0, -inOut);                      // 0 limpio .. 1 enredado
-  const tc     = frameCount * (0.012 + tangle * 0.045);    // ruido mas rapido al enredarse
+  // Ciclo lento (periodo ~21s) para que enredar y desenredar sea pausado.
+  const inOut  = Math.sin(frameCount * 0.005);             // -1 (dentro) .. +1 (afuera)
+  const tangle = Math.max(0, -inOut);                       // 0 limpio .. 1 ovillo
+  // Curva suavizada (smoothstep) para que cerca de 0 y de 1 el movimiento
+  // sea aun mas lento: empieza a enredarse de a poco y termina de a poco.
+  const tw     = tangle * tangle * (3 - 2 * tangle);
 
   // Glow del corazon: brillante cuando sale, opaco cuando se hunde adentro.
   const visible = Math.max(0.25, (inOut + 1) * 0.5);       // 0.25 .. 1
   drawingContext.shadowBlur  = (28 + Math.sin(frameCount * 0.05) * 10) * visible;
   drawingContext.shadowColor = `rgba(230, 35, 35, ${0.95 * visible})`;
 
+  // Pequeño ruido organico SIEMPRE presente, sutil, no caotico.
+  const tc = frameCount * 0.010;
+
   for (let i = 0; i < cores.length; i++) {
     const c = cores[i];
     const size = c.heartSize * pulse;
 
-    // Desplazamiento del centro del corazon: hacia la otra figura cuando sale,
-    // hacia el fondo del propio cuerpo cuando entra. Amplitud > radio del
-    // cuerpo en X para que claramente "salga" y "entre".
+    // Desplazamiento del centro del corazon: hacia la otra figura al salir,
+    // hacia el fondo del propio cuerpo al entrar.
     const dxHeart = -c.side * inOut * c.bodyA * 1.10;
-    // Pequeño cabeceo vertical para que no sea un puro vaiven horizontal.
-    const dyHeart = Math.sin(frameCount * 0.018 + c.tanglePhase) * c.bodyB * 0.18;
     const cxLive  = c.cx + dxHeart;
-    const cyLive  = c.cy + dyHeart;
+    const cyLive  = c.cy;
 
-    // Enredo: amplifica la desviacion de los control points en una direccion
-    // PROPIA de cada fibra (no compartida), y le suma ruido caotico cuando
-    // el corazon esta hundido. Al salir, todo vuelve a la curva limpia.
-    const tw       = 1 + tangle * 5.5;                     // factor de enredo
-    const chaosAmp = 12 + tangle * 95;
-    const n1 = (noise(c.noiseOff,         tc) - 0.5) * chaosAmp + c.tangleDirX * tangle * c.heartSize * 0.55;
-    const n2 = (noise(c.noiseOff + 50,    tc) - 0.5) * chaosAmp + c.tangleDirY * tangle * c.heartSize * 0.55;
-    const n3 = (noise(c.noiseOff + 100,   tc) - 0.5) * chaosAmp - c.tangleDirX * tangle * c.heartSize * 0.40;
-    const n4 = (noise(c.noiseOff + 150,   tc) - 0.5) * chaosAmp - c.tangleDirY * tangle * c.heartSize * 0.40;
+    // Desplazamiento ordenado de los control points: cada hilo se enrolla
+    // hacia un par de destinos FIJOS (angA/radA y angB/radB) escalados por
+    // tw. Al ser ANGULOS FIJOS POR FIBRA, no hay caos: el conjunto se ve
+    // como un ovillo armandose lenta y limpiamente.
+    const wind = c.heartSize * 0.65 * tw;
+    const wax  = Math.cos(c.tangleAngA) * wind * c.tangleRadA;
+    const way  = Math.sin(c.tangleAngA) * wind * c.tangleRadA;
+    const wbx  = Math.cos(c.tangleAngB) * wind * c.tangleRadB;
+    const wby  = Math.sin(c.tangleAngB) * wind * c.tangleRadB;
+
+    // Ruido organico SIEMPRE muy pequeño (no depende del tangle).
+    const n1 = (noise(c.noiseOff,       tc) - 0.5) * 6;
+    const n2 = (noise(c.noiseOff + 50,  tc) - 0.5) * 6;
 
     const p0 = heartPoint(c.t0, size);
     const p1 = heartPoint(c.t1, size);
@@ -197,8 +209,8 @@ function draw() {
     stroke(225, 35, 40, alpha);
     strokeWeight(c.weight);
     bezier(cxLive + p0.x, cyLive + p0.y,
-           cxLive + mx + (c.offX + n1) * tw, cyLive + my + (c.offY + n2) * tw,
-           cxLive + mx - (c.offX + n3) * tw, cyLive + my - (c.offY + n4) * tw,
+           cxLive + mx + c.offX + wax + n1, cyLive + my + c.offY + way + n2,
+           cxLive + mx - c.offX + wbx - n1, cyLive + my - c.offY + wby - n2,
            cxLive + p1.x, cyLive + p1.y);
   }
   drawingContext.shadowBlur = 0;
