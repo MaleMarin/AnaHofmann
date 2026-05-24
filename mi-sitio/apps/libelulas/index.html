@@ -243,14 +243,16 @@ let isExploding = false;
 let explosionForce = 0;
 let morphingEnabled = true;
 const NUM_PARTICLES = 2800;
-const MORPHING_SPEED = 0.0022;
-// Velocidad acelerada cuando se pulsa la tecla T (transformacion masiva).
-const T_MORPH_SPEED = 0.020;
+// Morph aleatorio sutil (F): cuanto MAS chico, mas dura el viaje entre libelulas.
+const MORPHING_SPEED = 0.0011;
+// Morph masivo (T): tambien mas lento para que la transformacion sea visible.
+const T_MORPH_SPEED = 0.010;
 // Amplitud del vuelo orgánico de cada libélula (% del canvas).
-const FLIGHT_AMP_X = 0.10;
-const FLIGHT_AMP_Y = 0.065;
-// Más bajo = vuelo más suave/viscoso (la libélula se acerca más lento al target).
-const FLIGHT_EASE  = 0.020;
+// Mas alto = la libelula recorre mas el fondo negro.
+const FLIGHT_AMP_X = 0.20;
+const FLIGHT_AMP_Y = 0.14;
+// Más bajo = vuelo más suave/viscoso y movimientos mas LARGOS y sostenidos.
+const FLIGHT_EASE  = 0.012;
 
 // ─── CONFIGURACIÓN DE LAS 4 LIBÉLULAS ───────────────────────────
 // rot en radianes: cada una mira hacia una dirección distinta
@@ -367,8 +369,8 @@ function draw() {
         else if (r < 0.24) next = 'TURN';
         else if (r < 0.32) next = 'REVERSE';
         else               next = 'CRUISE';
-        const dur = (next === 'CRUISE') ? 3 + Math.random() * 4
-                                        : 1.5 + Math.random() * 1.5;
+        const dur = (next === 'CRUISE') ? 5 + Math.random() * 6
+                                        : 2.5 + Math.random() * 2.5;
         df.maneuver = { type: next, t: 0, dur };
         if (next === 'TURN') {
           // ~180 grados en una direccion aleatoria.
@@ -414,8 +416,9 @@ function draw() {
   }
 
   if (isExploding) {
-    explosionForce *= 0.92;
-    if (explosionForce < 0.4) { isExploding = false; explosionForce = 0; }
+    // Decaimiento mas lento: la explosion se sostiene mucho mas tiempo.
+    explosionForce *= 0.965;
+    if (explosionForce < 0.25) { isExploding = false; explosionForce = 0; }
   }
 }
 
@@ -664,7 +667,8 @@ class Particle {
       this.exploded = true;
     }
     this.vx += this.exVx; this.vy += this.exVy;
-    this.exVx *= 0.90; this.exVy *= 0.90;
+    // Inercia mas larga: las particulas se alejan mucho mas antes de volver.
+    this.exVx *= 0.955; this.exVy *= 0.955;
     if (!isExploding) this.exploded = false;
 
     this.vx *= damp; this.vy *= damp;
@@ -700,7 +704,7 @@ class Particle {
 // ─── EVENTOS ─────────────────────────────────────────────────────
 function mousePressed() {
   isExploding = true;
-  explosionForce = random(38, 60);
+  explosionForce = random(55, 85);
 }
 
 function keyPressed() {
@@ -724,7 +728,7 @@ function keyPressed() {
       for (const p of dragonflies[idx].particles) {
         const a = atan2(p.y - mouseY, p.x - mouseX);
         const d = dist(p.x, p.y, mouseX, mouseY);
-        const f = map(d, 0, 400, 50, 12);
+        const f = map(d, 0, 500, 80, 20);
         p.exVx = cos(a) * f;
         p.exVy = sin(a) * f;
         p.exploded = true;
