@@ -90,8 +90,9 @@ function buildFigure(cx, cy, bodyW, bodyH) {
       alpha: 60 + Math.random() * 80,
       weight: 0.55 + Math.random() * 0.6,
       noiseOff: Math.random() * 1000,
-      // Las fibras del borde se mueven menos: nada de ondulaciones bruscas.
-      noiseAmp: isOuter ? 8 : 22,
+      // Las fibras del borde (anillo blanco) quedan COMPLETAMENTE quietas.
+      // Las del interior conservan su movimiento organico.
+      noiseAmp: isOuter ? 0 : 22,
     });
   }
 
