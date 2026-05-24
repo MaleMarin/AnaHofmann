@@ -10,10 +10,11 @@ body{background:#060d1a;font-family:'Courier New',monospace}
 canvas{display:block;cursor:crosshair}
 .title{position:fixed;top:28px;left:50%;transform:translateX(-50%);color:rgba(220,230,255,0.6);font-size:14px;letter-spacing:4.5px;text-transform:uppercase;pointer-events:none;font-weight:400}
 .info{position:fixed;bottom:22px;left:22px;color:rgba(220,230,255,0.78);font-size:12.5px;letter-spacing:1px;text-transform:uppercase;pointer-events:none;line-height:1.75;font-weight:500;text-shadow:0 1px 4px rgba(0,0,0,0.7)}
-.info span{display:block}
-.info .head{font-weight:600;margin-bottom:1px}
-.info .key{display:inline-block;min-width:54px;color:rgba(255,255,255,0.95);font-weight:700}
-.info .sep{opacity:0.4;margin:9px 0;letter-spacing:0}
+.info .head{display:block;font-weight:600;margin-bottom:1px}
+.info .sep{display:block;opacity:0.4;margin:9px 0;letter-spacing:0}
+.info .controls{display:grid;grid-template-columns:max-content max-content;column-gap:22px;row-gap:2px;align-items:baseline}
+.info .key{color:rgba(255,255,255,0.95);font-weight:700;white-space:nowrap}
+.info .desc{white-space:nowrap}
 </style>
 </head>
 <body>
@@ -24,12 +25,14 @@ canvas{display:block;cursor:crosshair}
   <span class="head" style="color:#b4ff00">Libélula 3 · Latido Rítmico</span>
   <span class="head" style="color:#dc3cff">Libélula 4 · Flujo Continuo</span>
   <span class="sep">─────────────────────</span>
-  <span><span class="key">Clic</span>→ Explosión global</span>
-  <span><span class="key">1 – 4</span>→ Explotar libélula</span>
-  <span><span class="key">F</span>→ Fluir entre libélulas</span>
-  <span><span class="key">T</span>→ Transformar todas</span>
-  <span><span class="key">G</span>→ Guardar imagen</span>
-  <span><span class="key">R</span>→ Reiniciar</span>
+  <div class="controls">
+    <span class="key">Clic</span><span class="desc">→ Explosión total</span>
+    <span class="key">1 – 4</span><span class="desc">→ Explotar libélula</span>
+    <span class="key">F</span><span class="desc">→ Fluir entre libélulas</span>
+    <span class="key">T</span><span class="desc">→ Transformar todas</span>
+    <span class="key">G</span><span class="desc">→ Guardar imagen</span>
+    <span class="key">R</span><span class="desc">→ Reiniciar</span>
+  </div>
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js"></script>
 <script>
