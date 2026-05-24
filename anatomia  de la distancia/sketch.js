@@ -165,11 +165,48 @@ function heartMorph(phase) {
 }
 
 function draw() {
-  background(0);
+  // Fondo apenas tintado en azul muy oscuro (frio): crea contraste cinematografico
+  // con los rojos calidos del corazon y los spotlights.
+  background(3, 3, 6);
+
+  // ── Parametros del ciclo del corazon (se calculan una vez por frame y
+  // los usan tanto los spotlights como las fibras del corazon).
+  const pulse = 1 + Math.sin(frameCount * 0.05) * 0.18;
+  const phase = (frameCount * 0.0016) % 2;
+  const morph = heartMorph(phase);                          // 0..2
+  const inOut = morph - 1;                                  // -1..+1
+  const kAB   = Math.min(1, morph);                          // 0..1 (punta -> ovillo)
+  const kBC   = Math.max(0, morph - 1);                      // 0..1 (ovillo -> corazon)
+  const visible = Math.max(0.25, (inOut + 1) * 0.5);
 
   push();
   translate(width / 2, height / 2);
   rotate(frameCount * ROTATION_SPEED);
+
+  // ── Spotlights cinematograficos detras de cada corazon. Pulsan suavemente
+  // con el latido y crecen/decaen segun la fase del ciclo (mas brillantes
+  // cuando el corazon esta desplegado como CORAZON, mas tenues como PUNTA).
+  if (cores.length) {
+    const prevComp = drawingContext.globalCompositeOperation;
+    drawingContext.globalCompositeOperation = 'lighter';
+    for (let f = 0; f < 2; f++) {
+      const c = cores[f * CORE_FIBERS];
+      if (!c) continue;
+      const dxHeart = -c.side * inOut * c.bodyA * 1.10;
+      const cxLive = c.cx + dxHeart;
+      const cyLive = c.cy;
+      const intensity = visible * (0.45 + kBC * 0.55) * (0.95 + (pulse - 1) * 0.5);
+      const radius = c.heartSize * 5.0;
+      const grad = drawingContext.createRadialGradient(cxLive, cyLive, 0, cxLive, cyLive, radius);
+      grad.addColorStop(0,    `rgba(255, 90, 60, ${0.42 * intensity})`);
+      grad.addColorStop(0.18, `rgba(200, 50, 35, ${0.28 * intensity})`);
+      grad.addColorStop(0.55, `rgba(110, 20, 15, ${0.12 * intensity})`);
+      grad.addColorStop(1,     'rgba(0, 0, 0, 0)');
+      drawingContext.fillStyle = grad;
+      drawingContext.fillRect(cxLive - radius, cyLive - radius, radius * 2, radius * 2);
+    }
+    drawingContext.globalCompositeOperation = prevComp;
+  }
 
   // Fibras del cuerpo
   noFill();
@@ -199,16 +236,10 @@ function draw() {
   //
   // Ademas el corazon entra y sale del cuerpo: cuando es punta esta hundido
   // adentro, como ovillo asoma a la mitad, como corazon esta afuera asomado.
-  const pulse = 1 + Math.sin(frameCount * 0.05) * 0.18;
-  const phase = (frameCount * 0.0016) % 2;                  // periodo ~21s
-  const morph = heartMorph(phase);                          // 0..2
-  const inOut = morph - 1;                                  // -1..+1
-  const kAB   = Math.min(1, morph);                         // 0..1 (punta -> ovillo)
-  const kBC   = Math.max(0, morph - 1);                     // 0..1 (ovillo -> corazon)
-
-  const visible = Math.max(0.25, (inOut + 1) * 0.5);
-  drawingContext.shadowBlur  = (28 + Math.sin(frameCount * 0.05) * 10) * visible;
-  drawingContext.shadowColor = `rgba(230, 35, 35, ${0.95 * visible})`;
+  // pulse, phase, morph, inOut, kAB, kBC y visible ya fueron calculados al
+  // principio de draw() (se comparten con los spotlights).
+  drawingContext.shadowBlur  = (32 + Math.sin(frameCount * 0.05) * 12) * visible;
+  drawingContext.shadowColor = `rgba(255, 60, 40, ${visible})`;
 
   const tc = frameCount * 0.010;
 
@@ -280,6 +311,23 @@ function draw() {
   drawingContext.shadowBlur = 0;
 
   pop();
+
+  // ── Vignette: oscurece los bordes para enfocar al centro (drama de cine).
+  drawVignette();
+}
+
+// Vignette radial: transparente en el centro, casi negro hacia los bordes.
+function drawVignette() {
+  const cx = width / 2;
+  const cy = height / 2;
+  const rMin = Math.min(width, height) * 0.32;
+  const rMax = Math.max(width, height) * 0.85;
+  const grad = drawingContext.createRadialGradient(cx, cy, rMin, cx, cy, rMax);
+  grad.addColorStop(0,    'rgba(0, 0, 0, 0)');
+  grad.addColorStop(0.55, 'rgba(0, 0, 0, 0.45)');
+  grad.addColorStop(1,    'rgba(0, 0, 0, 0.92)');
+  drawingContext.fillStyle = grad;
+  drawingContext.fillRect(0, 0, width, height);
 }
 
 // Curva del corazon parametrico clasico.
