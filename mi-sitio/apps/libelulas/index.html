@@ -8,26 +8,28 @@
 *{margin:0;padding:0;overflow:hidden}
 body{background:#060d1a;font-family:'Courier New',monospace}
 canvas{display:block;cursor:crosshair}
-.title{position:fixed;top:28px;left:50%;transform:translateX(-50%);color:rgba(220,230,255,0.35);font-size:12px;letter-spacing:5px;text-transform:uppercase;pointer-events:none;font-weight:300}
-.info{position:fixed;bottom:20px;left:20px;color:rgba(200,215,255,0.5);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;pointer-events:none;line-height:1.9}
+.title{position:fixed;top:28px;left:50%;transform:translateX(-50%);color:rgba(220,230,255,0.6);font-size:17px;letter-spacing:5px;text-transform:uppercase;pointer-events:none;font-weight:400}
+.info{position:fixed;bottom:24px;left:24px;color:rgba(220,230,255,0.78);font-size:15px;letter-spacing:1.2px;text-transform:uppercase;pointer-events:none;line-height:1.9;font-weight:500;text-shadow:0 1px 4px rgba(0,0,0,0.7)}
 .info span{display:block}
-.info .sep{opacity:0.25;margin:8px 0}
+.info .head{font-weight:600;margin-bottom:2px}
+.info .key{display:inline-block;min-width:62px;color:rgba(255,255,255,0.95);font-weight:700}
+.info .sep{opacity:0.45;margin:10px 0;letter-spacing:0}
 </style>
 </head>
 <body>
 <div class="title">Libélulas Vectoriales</div>
 <div class="info">
-  <span style="color:#00f9d4">Libélula 1: Respiración Orgánica</span>
-  <span style="color:#ff6b35">Libélula 2: Forma Estática</span>
-  <span style="color:#b4ff00">Libélula 3: Pulso Rítmico</span>
-  <span style="color:#df40ff">Libélula 4: Flujo Fluido</span>
-  <span class="sep">─────────────</span>
-  <span>Clic → Explosión global</span>
-  <span>1-4 → Explotar libélula</span>
-  <span>F → Fluir entre libélulas</span>
-  <span>T → Transformar todas</span>
-  <span>G → Guardar imagen</span>
-  <span>R → Reiniciar</span>
+  <span class="head" style="color:#00f9d4">Libélula 1 · Respiración Orgánica</span>
+  <span class="head" style="color:#ff6b35">Libélula 2 · Forma Estática</span>
+  <span class="head" style="color:#b4ff00">Libélula 3 · Pulso Rítmico</span>
+  <span class="head" style="color:#dc3cff">Libélula 4 · Flujo Fluido</span>
+  <span class="sep">─────────────────────</span>
+  <span><span class="key">Clic</span>→ Explosión global</span>
+  <span><span class="key">1 – 4</span>→ Explotar libélula</span>
+  <span><span class="key">F</span>→ Fluir entre libélulas</span>
+  <span><span class="key">T</span>→ Transformar todas</span>
+  <span><span class="key">G</span>→ Guardar imagen</span>
+  <span><span class="key">R</span>→ Reiniciar</span>
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js"></script>
 <script>

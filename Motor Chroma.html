@@ -12,7 +12,8 @@ html{scroll-behavior:smooth}
 body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif;background:var(--bg);color:var(--txt);-webkit-font-smoothing:antialiased;min-height:100vh}
 .page{min-height:100vh;padding:32px 0 64px;display:flex;flex-direction:column;align-items:center}
 .wrapper{width:74%;max-width:1280px;margin:0 auto;display:flex;flex-direction:column;align-items:stretch}
-.top-hint{text-align:center;font-size:11px;color:var(--txt2);letter-spacing:.3px;margin-bottom:14px}
+.top-hint{text-align:center;font-size:15.5px;color:rgba(29,29,31,.72);letter-spacing:.1px;margin-bottom:22px;font-weight:500}
+.top-hint .top-emph{color:var(--accent);font-weight:600}
 .nav{padding:0;display:flex;align-items:center;gap:14px;background:transparent;margin-bottom:40px;z-index:100;position:relative}
 .nav-title{font-size:19px;font-weight:600;letter-spacing:-.4px;white-space:nowrap;margin-right:8px}
 .nav-center{display:flex;gap:10px;align-items:center;flex:1;justify-content:center}
@@ -43,24 +44,34 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-se
 .ai-name{font-size:13.5px;font-weight:500}
 .ai-year{font-size:12px;color:var(--txt2)}
 .ai.sel .ai-year{color:rgba(0,113,227,.65)}
-.dd-palette{min-width:295px}
-.pal-body{padding:16px;display:flex;flex-direction:column;gap:12px}
-.cr{display:flex;align-items:center;gap:11px}
-.cr input[type=color]{width:52px;height:52px;border:1.5px solid var(--border);border-radius:var(--r1);cursor:pointer;background:none;padding:0;transition:var(--ease)}
+.dd-palette{min-width:340px;max-height:calc(100vh - 120px)}
+.pal-intro{padding:13px 17px 4px;font-size:13px;line-height:1.45;color:var(--txt2)}
+.pal-intro strong{color:var(--txt);font-weight:600;display:block;margin-bottom:3px;font-size:13.5px}
+.pal-intro em{font-style:normal;color:var(--accent);font-weight:500}
+.pal-body{padding:10px 16px 6px;display:flex;flex-direction:column;gap:9px;max-height:48vh;overflow-y:auto}
+.pal-body::-webkit-scrollbar{width:4px}
+.pal-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+.cr{display:flex;align-items:center;gap:12px}
+.cr input[type=color]{width:46px;height:46px;border:1.5px solid var(--border);border-radius:var(--r1);cursor:pointer;background:none;padding:0;transition:var(--ease);flex-shrink:0}
 .cr input[type=color]::-webkit-color-swatch-wrapper{padding:0}
 .cr input[type=color]::-webkit-color-swatch{border:none;border-radius:6px}
 .cr input[type=color]:hover{transform:scale(1.06);box-shadow:var(--sh2)}
-.cr label{font-size:13.5px;font-weight:500;flex:1}
+.cr-meta{display:flex;flex-direction:column;gap:1px;flex:1;min-width:0}
+.cr-meta label{font-size:13.5px;font-weight:500;cursor:pointer}
+.cr-meta .cr-hex{font-size:11.5px;color:var(--txt2);font-variant-numeric:tabular-nums;letter-spacing:.6px;text-transform:uppercase}
 .apply-btn{margin:4px 16px 16px;padding:10px;background:var(--accent);color:#fff;border:none;border-radius:var(--r2);font-size:14px;font-weight:500;cursor:pointer;transition:var(--ease);width:calc(100% - 32px)}
 .apply-btn:hover{background:var(--accent2);transform:translateY(-1px)}
-.dd-settings{min-width:285px}
-.set-body{padding:16px;display:flex;flex-direction:column;gap:18px}
-.sl-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:13.5px;font-weight:500}
-.sl-val{font-size:12px;color:var(--txt2);font-variant-numeric:tabular-nums}
+.dd-settings{min-width:360px}
+.set-body{padding:16px;display:flex;flex-direction:column;gap:17px}
+.setting{display:flex;flex-direction:column;gap:8px}
+.sl-row{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;font-size:14.5px;font-weight:600}
+.setting-copy,.tg-copy{display:block;margin-top:3px;font-size:12px;line-height:1.35;color:rgba(0,0,0,.48);font-weight:400;text-transform:none;letter-spacing:0}
+.sl-val{font-size:12px;color:var(--txt2);font-variant-numeric:tabular-nums;white-space:nowrap;padding-top:2px}
 input[type=range]{width:100%;height:4px;border-radius:2px;background:var(--border);outline:none;-webkit-appearance:none;cursor:pointer}
 input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--accent);cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,.2);transition:var(--ease)}
 input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--accent);cursor:pointer;border:none}
-.tg-row{display:flex;justify-content:space-between;align-items:center;font-size:13.5px;font-weight:500;cursor:pointer}
+.tg-row{display:flex;justify-content:space-between;align-items:center;gap:18px;font-size:14.5px;font-weight:600;cursor:pointer}
+.tg-label{display:block}
 .tg{position:relative;width:44px;height:26px;flex-shrink:0}
 .tg input{opacity:0;width:0;height:0}
 .tg-t{position:absolute;cursor:pointer;inset:0;background:#ccc;transition:var(--ease);border-radius:26px}
@@ -81,7 +92,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
 <div class="overlay" id="overlay"></div>
 <div class="page">
 <div class="wrapper">
-<div class="top-hint">Haz clic en el canvas para generar una nueva obra</div>
+<div class="top-hint"><span class="top-emph">Haz clic sobre el lienzo</span> para generar una nueva variación de la obra</div>
 <nav class="nav">
   <h1 class="nav-title">Motor de Chroma</h1>
   <div class="nav-center">
@@ -93,16 +104,14 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
       </div>
     </div>
     <div class="cg" id="cg-p">
-      <button class="cb" id="btn-p"><span>Paleta Personalizada</span><span class="cb-arrow">⌄</span></button>
+      <button class="cb" id="btn-p"><span>Editar Paleta</span><span class="cb-arrow">⌄</span></button>
       <div class="dd dd-palette" id="dd-p">
-        <div class="dd-head">Crear tu paleta</div>
-        <div class="pal-body">
-          <div class="cr"><input type="color" id="c1" value="#E63946"><label for="c1">Color 1</label></div>
-          <div class="cr"><input type="color" id="c2" value="#457B9D"><label for="c2">Color 2</label></div>
-          <div class="cr"><input type="color" id="c3" value="#F4A261"><label for="c3">Color 3</label></div>
-          <div class="cr"><input type="color" id="c4" value="#2A9D8F"><label for="c4">Color 4</label></div>
-          <div class="cr"><input type="color" id="c5" value="#E9C46A"><label for="c5">Color 5</label></div>
+        <div class="dd-head" id="pal-head">Paleta del artista</div>
+        <div class="pal-intro" id="pal-intro">
+          <strong>Estos son los colores del artista seleccionado.</strong>
+          Toca cualquier cuadrado para cambiarlo a tu gusto y después presiona <em>Aplicar paleta</em>.
         </div>
+        <div class="pal-body" id="pal-body"></div>
         <button class="apply-btn" id="btn-apply">Aplicar paleta</button>
       </div>
     </div>
@@ -111,14 +120,14 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
       <div class="dd dd-settings" id="dd-s">
         <div class="dd-head">Ajustes del canvas</div>
         <div class="set-body">
-          <div><div class="sl-row"><span>Capas</span><span class="sl-val" id="vl">10</span></div><input type="range" id="sl-l" min="1" max="20" value="10"></div>
-          <div><div class="sl-row"><span>Rotación</span><span class="sl-val" id="vr">1°</span></div><input type="range" id="sl-r" min="0" max="360" value="1"></div>
-          <div><div class="sl-row"><span>Franjas</span><span class="sl-val" id="vf">7</span></div><input type="range" id="sl-f" min="2" max="60" step="1" value="7"></div>
-          <div><div class="sl-row"><span>Contorno</span><span class="sl-val" id="vs">0.05</span></div><input type="range" id="sl-s" min="0.05" max="30" step="0.05" value="0.05"></div>
-          <div><div class="sl-row"><span>Opacidad</span><span class="sl-val" id="va">255</span></div><input type="range" id="sl-a" min="30" max="255" value="255"></div>
-          <label class="tg-row"><span>Mostrar líneas</span><div class="tg"><input type="checkbox" id="tog-l" checked><span class="tg-t"></span></div></label>
-          <label class="tg-row"><span>Rellenar formas</span><div class="tg"><input type="checkbox" id="tog-f" checked><span class="tg-t"></span></div></label>
-          <label class="tg-row"><span>Líneas de color</span><div class="tg"><input type="checkbox" id="tog-c"><span class="tg-t"></span></div></label>
+          <div class="setting"><div class="sl-row"><span>Cantidad de capas<span class="setting-copy">Más capas crean más bandas superpuestas y profundidad.</span></span><span class="sl-val" id="vl">10</span></div><input type="range" id="sl-l" min="1" max="20" value="10"></div>
+          <div class="setting"><div class="sl-row"><span>Giro entre capas<span class="setting-copy">Rota cada capa para cambiar la dirección del tejido.</span></span><span class="sl-val" id="vr">1°</span></div><input type="range" id="sl-r" min="0" max="360" value="1"></div>
+          <div class="setting"><div class="sl-row"><span>Tamaño de las franjas<span class="setting-copy">Bajo = líneas juntas. Alto = franjas más anchas.</span></span><span class="sl-val" id="vf">7</span></div><input type="range" id="sl-f" min="2" max="60" step="1" value="7"></div>
+          <div class="setting"><div class="sl-row"><span>Grosor del borde<span class="setting-copy">Controla qué tan marcado se ve el contorno.</span></span><span class="sl-val" id="vs">0.05</span></div><input type="range" id="sl-s" min="0.05" max="30" step="0.05" value="0.05"></div>
+          <div class="setting"><div class="sl-row"><span>Transparencia del color<span class="setting-copy">Baja el valor para mezclar visualmente las capas.</span></span><span class="sl-val" id="va">255</span></div><input type="range" id="sl-a" min="30" max="255" value="255"></div>
+          <label class="tg-row"><span class="tg-label">Ver contornos<span class="tg-copy">Muestra u oculta los bordes de las formas.</span></span><div class="tg"><input type="checkbox" id="tog-l" checked><span class="tg-t"></span></div></label>
+          <label class="tg-row"><span class="tg-label">Pintar formas<span class="tg-copy">Si se apaga, queda solo el dibujo de líneas.</span></span><div class="tg"><input type="checkbox" id="tog-f" checked><span class="tg-t"></span></div></label>
+          <label class="tg-row"><span class="tg-label">Contornos con color<span class="tg-copy">Usa colores de la paleta en lugar de negro.</span></span><div class="tg"><input type="checkbox" id="tog-c"><span class="tg-t"></span></div></label>
         </div>
       </div>
     </div>
@@ -309,7 +318,38 @@ function mousePressed(){if(mouseX>=0&&mouseX<=width&&mouseY>=0&&mouseY<=height)d
 function keyTyped(){if(key==='s')saveCanvas(downloadName(),'jpg');}
 
 function setArtist(key){
-  for(const e of ERAS){const a=e.artists.find(x=>x.key===key);if(a){artistPalette=a.colors;currentKey=key;currentArtistName=a.name;return a;}}
+  for(const e of ERAS){const a=e.artists.find(x=>x.key===key);if(a){artistPalette=a.colors;currentKey=key;currentArtistName=a.name;userOn=false;userPalette=[];paintPaletteEditor();return a;}}
+}
+
+function rgb2hex(c){return '#'+[c[0],c[1],c[2]].map(v=>Math.round(v).toString(16).padStart(2,'0')).join('').toUpperCase();}
+
+function paintPaletteEditor(){
+  const body=document.getElementById('pal-body');if(!body)return;
+  const pal=(userOn&&userPalette.length)?userPalette:artistPalette;
+  body.innerHTML='';
+  pal.forEach((c,i)=>{
+    const hex=rgb2hex(c);
+    const row=document.createElement('div');row.className='cr';
+    row.innerHTML='<input type="color" id="c'+i+'" value="'+hex+'"><div class="cr-meta"><label for="c'+i+'">Color '+(i+1)+'</label><span class="cr-hex">'+hex+'</span></div>';
+    body.appendChild(row);
+  });
+  body.querySelectorAll('input[type=color]').forEach(inp=>{
+    inp.addEventListener('input',()=>{
+      const hex=inp.value.toUpperCase();
+      const span=inp.parentElement.querySelector('.cr-hex');
+      if(span)span.textContent=hex;
+    });
+  });
+  const head=document.getElementById('pal-head');
+  if(head)head.textContent=userOn?'Tu paleta personalizada':'Paleta de '+currentArtistName;
+  const intro=document.getElementById('pal-intro');
+  if(intro){
+    if(userOn){
+      intro.innerHTML='<strong>Estás editando una versión personalizada.</strong>Toca cualquier color para seguir afinando tu paleta.';
+    }else{
+      intro.innerHTML='<strong>Paleta original de '+currentArtistName+'.</strong>Toca cualquier cuadrado para cambiar un color y después presiona <em>Aplicar paleta</em>.';
+    }
+  }
 }
 
 function downloadName(){
@@ -355,10 +395,13 @@ function initUI(){
   document.getElementById('overlay').addEventListener('click',closeAll);
   document.getElementById('btn-apply').addEventListener('click',e=>{
     e.stopPropagation();
-    userPalette=['c1','c2','c3','c4','c5'].map(id=>hex2rgb(document.getElementById(id).value));
+    const inputs=[...document.querySelectorAll('#pal-body input[type=color]')];
+    if(!inputs.length){closeAll();return;}
+    userPalette=inputs.map(i=>hex2rgb(i.value));
     userOn=true;document.getElementById('btn-p').classList.add('pal-on');
     document.querySelectorAll('.ai').forEach(x=>x.classList.remove('sel'));
     document.getElementById('txt-a').textContent='Paleta personalizada';
+    paintPaletteEditor();
     drawArt();closeAll();
   });
   const bindSl=(id,vid,sfx,cb)=>{
