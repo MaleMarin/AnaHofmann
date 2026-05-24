@@ -239,9 +239,15 @@ function dragonfly(cx, cy, scale, rot = 0) {
 
 // ─── VARIABLES GLOBALES ──────────────────────────────────────────
 let dragonflies = [];
-let isExploding = false;
-let explosionForce = 0;
 let morphingEnabled = true;
+// Explosion en 3 fases (en frames). Cada libelula tiene su propio estado
+// `df.expl` para que la animacion sea independiente y radial (no sesgada
+// al mouse). Las particulas se contraen, despues estallan en TODAS las
+// direcciones y finalmente se reagrupan en la silueta de la libelula.
+const EXPL_IMPLODE   = 30;  // 0.5s a 60fps: implosion hacia el centro
+const EXPL_EXPLODE   = 55;  // ~0.9s: explosion radial
+const EXPL_REFORM    = 55;  // ~0.9s: reagrupacion / "vuelve a ser libelula"
+const EXPL_TOTAL     = EXPL_IMPLODE + EXPL_EXPLODE + EXPL_REFORM;
 const NUM_PARTICLES = 2800;
 // Morph aleatorio sutil (F): cuanto MAS chico, mas dura el viaje entre libelulas.
 const MORPHING_SPEED = 0.0011;
@@ -300,6 +306,8 @@ function setup() {
       // 4 alas independientes.
       maneuver: { type: 'CRUISE', t: 0, dur: 2 + Math.random() * 3 },
       turnTarget: cfg.rot,
+      // Estado de explosion radial (frame contador). frame < 0 = inactiva.
+      expl: { frame: -1, power: 0, cx: 0, cy: 0 },
     };
 
     // Importante: agregamos la libelula al array ANTES de crear sus
@@ -408,18 +416,30 @@ function draw() {
     df.cy = lerp(df.cy, targetY, FLIGHT_EASE);
   }
 
+  // Avanza el contador de explosion de cada libelula (3 fases).
+  for (const df of dragonflies) {
+    if (df.expl.frame >= 0) {
+      df.expl.frame++;
+      if (df.expl.frame >= EXPL_TOTAL) df.expl.frame = -1;
+    }
+  }
+
   for (const df of dragonflies) {
     for (const p of df.particles) {
       p.update(df);
       p.draw(df);
     }
   }
+}
 
-  if (isExploding) {
-    // Decaimiento mas lento: la explosion se sostiene mucho mas tiempo.
-    explosionForce *= 0.965;
-    if (explosionForce < 0.25) { isExploding = false; explosionForce = 0; }
-  }
+// Dispara la explosion 3-fases en una libelula. El centro queda anclado a
+// su posicion actual: las particulas estallan radialmente en TODAS las
+// direcciones y luego se reagrupan en la silueta de la libelula.
+function triggerExplosion(df, power) {
+  df.expl.frame = 0;
+  df.expl.power = power;
+  df.expl.cx = df.cx;
+  df.expl.cy = df.cy;
 }
 
 // ─── PARTÍCULA ───────────────────────────────────────────────────
@@ -461,8 +481,6 @@ class Particle {
     this.nx = random(1000); this.ny = random(1000);
     this.alpha = random(35, 110);
     this.len   = random(2, 9);
-    this.exVx = 0; this.exVy = 0;
-    this.exploded = false;
     this.isMorphing = false;
     this.morphProgress = 0;
     this.morphSpeed = MORPHING_SPEED;
@@ -646,8 +664,45 @@ class Particle {
                 : this.behavior === 'pulse'  ? 0.86
                 : this.behavior === 'flow'   ? 0.90 : 0.85;
 
-    this.vx += (targetX - this.x) * force;
-    this.vy += (targetY - this.y) * force;
+    // ── Explosion radial 3-fases (implosion -> explosion -> reformacion).
+    // Suaviza la fuerza de "atraccion al target" durante las fases activas
+    // para que la radial domine claramente. En REFORM volvemos a la
+    // atraccion completa: la libelula se reagrupa con fuerza.
+    const e = ownDf.expl;
+    let attractMul = 1;
+    if (e.frame >= 0) {
+      const f = e.frame;
+      const dx = this.x - e.cx;
+      const dy = this.y - e.cy;
+      const dd = Math.max(0.5, Math.hypot(dx, dy));
+      const ux = dx / dd, uy = dy / dd;
+
+      if (f < EXPL_IMPLODE) {
+        // FASE 1 — IMPLOSION: las particulas convergen al centro.
+        const k = f / EXPL_IMPLODE;             // 0..1
+        const env = Math.sin(k * Math.PI);      // 0 -> 1 -> 0
+        const mag = e.power * 0.55 * env;
+        this.vx -= ux * mag;
+        this.vy -= uy * mag;
+        attractMul = 0.05;                       // no tirar al target todavia
+      } else if (f < EXPL_IMPLODE + EXPL_EXPLODE) {
+        // FASE 2 — EXPLOSION RADIAL: estallido en todas las direcciones.
+        const k = (f - EXPL_IMPLODE) / EXPL_EXPLODE;
+        // Pico fuerte al inicio y cola larga.
+        const env = Math.pow(1 - k, 1.6) * 1.2;
+        const mag = e.power * env;
+        this.vx += ux * mag;
+        this.vy += uy * mag;
+        attractMul = 0.05;
+      } else {
+        // FASE 3 — REFORMACION: vuelven a armar la libelula con fuerza extra.
+        const k = (f - EXPL_IMPLODE - EXPL_EXPLODE) / EXPL_REFORM;
+        attractMul = 1 + (1 - k) * 2.5;          // refuerza la atraccion al target
+      }
+    }
+
+    this.vx += (targetX - this.x) * force * attractMul;
+    this.vy += (targetY - this.y) * force * attractMul;
 
     // Estatica: cero ruido. Resto: ruido pequeño solo en cuerpo (no en alas,
     // que ya tienen su propio movimiento) — asi el aleteo se ve "limpio".
@@ -656,20 +711,6 @@ class Particle {
       this.vx += (noise(this.nx + frameCount * 0.009) - 0.5) * ns * 55;
       this.vy += (noise(this.ny + frameCount * 0.009) - 0.5) * ns * 55;
     }
-
-    // Explosión
-    if (isExploding && !this.exploded) {
-      const a = atan2(this.y - mouseY, this.x - mouseX);
-      const d = dist(this.x, this.y, mouseX, mouseY);
-      const f = map(d, 0, 500, explosionForce, explosionForce * 0.35);
-      this.exVx = cos(a) * f;
-      this.exVy = sin(a) * f;
-      this.exploded = true;
-    }
-    this.vx += this.exVx; this.vy += this.exVy;
-    // Inercia mas larga: las particulas se alejan mucho mas antes de volver.
-    this.exVx *= 0.955; this.exVy *= 0.955;
-    if (!isExploding) this.exploded = false;
 
     this.vx *= damp; this.vy *= damp;
     this.x  += this.vx; this.y  += this.vy;
@@ -703,8 +744,12 @@ class Particle {
 
 // ─── EVENTOS ─────────────────────────────────────────────────────
 function mousePressed() {
-  isExploding = true;
-  explosionForce = random(55, 85);
+  // Clic = explosion radial en TODAS las libelulas, cada una alrededor de
+  // su propio centro. Asi las particulas no salen "para un solo lado",
+  // sino que se contraen, estallan en 360 y vuelven a armarse.
+  for (const df of dragonflies) {
+    triggerExplosion(df, random(6, 9));
+  }
 }
 
 function keyPressed() {
@@ -725,14 +770,8 @@ function keyPressed() {
   if (key >= '1' && key <= '4') {
     const idx = parseInt(key) - 1;
     if (idx < dragonflies.length) {
-      for (const p of dragonflies[idx].particles) {
-        const a = atan2(p.y - mouseY, p.x - mouseX);
-        const d = dist(p.x, p.y, mouseX, mouseY);
-        const f = map(d, 0, 500, 80, 20);
-        p.exVx = cos(a) * f;
-        p.exVy = sin(a) * f;
-        p.exploded = true;
-      }
+      // Explosion radial 3-fases SOLO en la libelula elegida.
+      triggerExplosion(dragonflies[idx], random(8, 11));
     }
   }
 
