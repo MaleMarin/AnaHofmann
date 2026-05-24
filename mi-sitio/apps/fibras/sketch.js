@@ -96,30 +96,69 @@ function buildFigure(cx, cy, bodyW, bodyH) {
     });
   }
 
+  // Radio del ovillo (compartido por todas las fibras del corazon): un poco
+  // mas grande que el corazon para que el ovillo sea claramente una "bola".
+  const ballR = heartSize * 0.82;
+
   for (let i = 0; i < CORE_FIBERS; i++) {
-    // Cada hilo del corazon tiene un destino FIJO de enredo (angulo + radio
-    // propios, no aleatorios por frame). Al enredarse cp1 y cp2 se deslizan
-    // hacia esos puntos como un ovillo de lana que se va armando, y al
-    // desenredarse vuelven en linea recta a la curva limpia del corazon.
+    // Cada hilo del corazon tiene 3 estados precomputados que no cambian
+    // frame a frame: PUNTA (cluster diminuto en el centro), OVILLO (cuerda
+    // que cruza un circulo) y CORAZON (curva limpia parametrica). Al
+    // animar, simplemente interpolamos linealmente entre estos targets.
+
+    // OVILLO: cuerda cruzando el circulo. p0 y p1 en angulos angA y angB
+    // sobre el circulo de radio ballR. Si la separacion es chica, la cuerda
+    // bordea la pelota; si es grande, la cruza por el centro.
     const angA = Math.random() * TWO_PI;
-    const angB = angA + Math.PI + (Math.random() - 0.5) * 0.7;
+    const angB = angA + Math.PI * (0.35 + Math.random() * 1.30);
+    // Curvatura propia de la cuerda (perpendicular). Signos aleatorios
+    // hacen que algunas cuerdas curven hacia adentro, otras hacia afuera.
+    const ballCurve = (Math.random() - 0.5) * heartSize * 0.85;
+
+    // PUNTA: posicion del hilo cuando todos colapsan a un cluster diminuto.
+    // Un pequeño jitter por fibra para que no sea un solo pixel.
+    const pjit = heartSize * 0.04;
+
     cores.push({
       cx, cy, heartSize,
       // side = +1 figura derecha, -1 figura izquierda. Sirve para que los
       // corazones se asomen el uno hacia el otro y se hundan al alejarse.
       side: cx >= 0 ? 1 : -1,
       bodyA: a, bodyB: b,
+      // Estado CORAZON:
       t0: Math.random() * TWO_PI,
       t1: Math.random() * TWO_PI,
-      tangleAngA: angA, tangleAngB: angB,
-      tangleRadA: 0.55 + Math.random() * 0.75,
-      tangleRadB: 0.55 + Math.random() * 0.75,
       offX: (Math.random() - 0.5) * heartSize * 0.35,
       offY: (Math.random() - 0.5) * heartSize * 0.35,
+      // Estado OVILLO:
+      ballR,
+      ballP0X: Math.cos(angA) * ballR,
+      ballP0Y: Math.sin(angA) * ballR,
+      ballP1X: Math.cos(angB) * ballR,
+      ballP1Y: Math.sin(angB) * ballR,
+      ballCurve,
+      // Estado PUNTA:
+      pointJX: (Math.random() - 0.5) * pjit,
+      pointJY: (Math.random() - 0.5) * pjit,
       noiseOff: Math.random() * 1000,
       weight: 1.2 + Math.random() * 0.8,
     });
   }
+}
+
+// Curva del ciclo PUNTA -> OVILLO -> CORAZON -> OVILLO -> PUNTA con
+// PAUSAS en cada estado y smoothstep en las transiciones.
+// Devuelve un numero en [0, 2]: 0 = punta, 1 = ovillo, 2 = corazon.
+function heartMorph(phase) {
+  const ss = x => x * x * (3 - 2 * x);
+  if      (phase < 0.20) return 0;                            // punta (linger)
+  else if (phase < 0.50) return ss((phase - 0.20) / 0.30);    // punta -> ovillo
+  else if (phase < 0.70) return 1;                            // ovillo (linger)
+  else if (phase < 1.00) return 1 + ss((phase - 0.70) / 0.30);// ovillo -> corazon
+  else if (phase < 1.20) return 2;                            // corazon (linger)
+  else if (phase < 1.50) return 2 - ss((phase - 1.20) / 0.30);// corazon -> ovillo
+  else if (phase < 1.70) return 1;                            // ovillo (linger)
+  else                   return 1 - ss((phase - 1.70) / 0.30);// ovillo -> punta
 }
 
 function draw() {
@@ -147,71 +186,93 @@ function draw() {
            f.p1x, f.p1y);
   }
 
-  // ── Corazones rojos: laten, entran/salen del cuerpo, se enredan/desenredan.
+  // ── Corazones rojos: ciclo PUNTA -> OVILLO -> CORAZON -> OVILLO -> PUNTA.
   //
-  // Tres ciclos independientes:
-  //  - latido (pulse):  respiracion rapida del tamaño.
-  //  - viaje in/out:    el corazon entra y sale del cuerpo (eje x).
-  //                     inOut > 0  -> AFUERA (asomado hacia la otra figura).
-  //                     inOut < 0  -> ADENTRO (hundido en el cuerpo).
-  //  - ovillo:          cuando esta DENTRO se enreda como un ovillo de lana
-  //                     (cada hilo va deslizandose hacia un destino FIJO);
-  //                     al salir se desenreda LINEAL y LENTAMENTE a la curva
-  //                     limpia del corazon. No hay ruido caotico.
-  const pulse  = 1 + Math.sin(frameCount * 0.05) * 0.18;
-  // Ciclo lento (periodo ~21s) para que enredar y desenredar sea pausado.
-  const inOut  = Math.sin(frameCount * 0.005);             // -1 (dentro) .. +1 (afuera)
-  const tangle = Math.max(0, -inOut);                       // 0 limpio .. 1 ovillo
-  // Curva suavizada (smoothstep) para que cerca de 0 y de 1 el movimiento
-  // sea aun mas lento: empieza a enredarse de a poco y termina de a poco.
-  const tw     = tangle * tangle * (3 - 2 * tangle);
+  // Cada hilo del corazon tiene 3 targets precomputados (punta, ovillo,
+  // corazon). Frame a frame interpolamos linealmente entre ellos segun el
+  // valor de `morph` (0 = punta, 1 = ovillo, 2 = corazon). El ciclo dura
+  // ~21s con PAUSAS en cada estado y smoothstep en las transiciones, asi
+  // se ve claramente "primero punta, despues ovillo, despues corazon".
+  //
+  // Ademas el corazon entra y sale del cuerpo: cuando es punta esta hundido
+  // adentro, como ovillo asoma a la mitad, como corazon esta afuera asomado.
+  const pulse = 1 + Math.sin(frameCount * 0.05) * 0.18;
+  const phase = (frameCount * 0.0016) % 2;                  // periodo ~21s
+  const morph = heartMorph(phase);                          // 0..2
+  const inOut = morph - 1;                                  // -1..+1
+  const kAB   = Math.min(1, morph);                         // 0..1 (punta -> ovillo)
+  const kBC   = Math.max(0, morph - 1);                     // 0..1 (ovillo -> corazon)
 
-  // Glow del corazon: brillante cuando sale, opaco cuando se hunde adentro.
-  const visible = Math.max(0.25, (inOut + 1) * 0.5);       // 0.25 .. 1
+  const visible = Math.max(0.25, (inOut + 1) * 0.5);
   drawingContext.shadowBlur  = (28 + Math.sin(frameCount * 0.05) * 10) * visible;
   drawingContext.shadowColor = `rgba(230, 35, 35, ${0.95 * visible})`;
 
-  // Pequeño ruido organico SIEMPRE presente, sutil, no caotico.
   const tc = frameCount * 0.010;
 
   for (let i = 0; i < cores.length; i++) {
     const c = cores[i];
     const size = c.heartSize * pulse;
 
-    // Desplazamiento del centro del corazon: hacia la otra figura al salir,
-    // hacia el fondo del propio cuerpo al entrar.
+    // Target del estado CORAZON (curva parametrica limpia).
+    const hp0 = heartPoint(c.t0, size);
+    const hp1 = heartPoint(c.t1, size);
+    const hmx = (hp0.x + hp1.x) * 0.5;
+    const hmy = (hp0.y + hp1.y) * 0.5;
+    const hcp1x = hmx + c.offX, hcp1y = hmy + c.offY;
+    const hcp2x = hmx - c.offX, hcp2y = hmy - c.offY;
+
+    // Target del estado OVILLO (cuerda en el circulo, curvada perpendic.).
+    const bp0x = c.ballP0X, bp0y = c.ballP0Y;
+    const bp1x = c.ballP1X, bp1y = c.ballP1Y;
+    const bdx = bp1x - bp0x, bdy = bp1y - bp0y;
+    const blen = Math.sqrt(bdx * bdx + bdy * bdy) || 1;
+    const bperpX = -bdy / blen, bperpY = bdx / blen;
+    const bcp1x = bp0x + bdx * 0.33 + bperpX * c.ballCurve;
+    const bcp1y = bp0y + bdy * 0.33 + bperpY * c.ballCurve;
+    const bcp2x = bp0x + bdx * 0.66 + bperpX * c.ballCurve;
+    const bcp2y = bp0y + bdy * 0.66 + bperpY * c.ballCurve;
+
+    // Target del estado PUNTA (jitter chico). Todos los puntos del bezier
+    // colapsan al mismo lugar -> degeneracion controlada al cluster.
+    const ptX = c.pointJX, ptY = c.pointJY;
+
+    // ── Interpolacion en dos tramos. Primero punta -> ovillo (kAB),
+    //    despues ovillo -> corazon (kBC).
+    let p0x = ptX + (bp0x - ptX) * kAB;
+    let p0y = ptY + (bp0y - ptY) * kAB;
+    let p1x = ptX + (bp1x - ptX) * kAB;
+    let p1y = ptY + (bp1y - ptY) * kAB;
+    let cp1x = ptX + (bcp1x - ptX) * kAB;
+    let cp1y = ptY + (bcp1y - ptY) * kAB;
+    let cp2x = ptX + (bcp2x - ptX) * kAB;
+    let cp2y = ptY + (bcp2y - ptY) * kAB;
+    if (kBC > 0) {
+      p0x = p0x + (hp0.x - p0x) * kBC;
+      p0y = p0y + (hp0.y - p0y) * kBC;
+      p1x = p1x + (hp1.x - p1x) * kBC;
+      p1y = p1y + (hp1.y - p1y) * kBC;
+      cp1x = cp1x + (hcp1x - cp1x) * kBC;
+      cp1y = cp1y + (hcp1y - cp1y) * kBC;
+      cp2x = cp2x + (hcp2x - cp2x) * kBC;
+      cp2y = cp2y + (hcp2y - cp2y) * kBC;
+    }
+
+    // Posicion del centro del corazon: entra/sale del cuerpo segun inOut.
     const dxHeart = -c.side * inOut * c.bodyA * 1.10;
     const cxLive  = c.cx + dxHeart;
     const cyLive  = c.cy;
 
-    // Desplazamiento ordenado de los control points: cada hilo se enrolla
-    // hacia un par de destinos FIJOS (angA/radA y angB/radB) escalados por
-    // tw. Al ser ANGULOS FIJOS POR FIBRA, no hay caos: el conjunto se ve
-    // como un ovillo armandose lenta y limpiamente.
-    const wind = c.heartSize * 0.65 * tw;
-    const wax  = Math.cos(c.tangleAngA) * wind * c.tangleRadA;
-    const way  = Math.sin(c.tangleAngA) * wind * c.tangleRadA;
-    const wbx  = Math.cos(c.tangleAngB) * wind * c.tangleRadB;
-    const wby  = Math.sin(c.tangleAngB) * wind * c.tangleRadB;
+    // Ruido organico SIEMPRE muy chico (no depende del estado).
+    const n1 = (noise(c.noiseOff,      tc) - 0.5) * 6;
+    const n2 = (noise(c.noiseOff + 50, tc) - 0.5) * 6;
 
-    // Ruido organico SIEMPRE muy pequeño (no depende del tangle).
-    const n1 = (noise(c.noiseOff,       tc) - 0.5) * 6;
-    const n2 = (noise(c.noiseOff + 50,  tc) - 0.5) * 6;
-
-    const p0 = heartPoint(c.t0, size);
-    const p1 = heartPoint(c.t1, size);
-    const mx = (p0.x + p1.x) * 0.5;
-    const my = (p0.y + p1.y) * 0.5;
-
-    // Opacidad: corazon mas tenue cuando esta hundido (lo cubren las fibras
-    // del cuerpo); claro y brillante cuando sale al exterior.
     const alpha = 90 + 150 * visible;
     stroke(225, 35, 40, alpha);
     strokeWeight(c.weight);
-    bezier(cxLive + p0.x, cyLive + p0.y,
-           cxLive + mx + c.offX + wax + n1, cyLive + my + c.offY + way + n2,
-           cxLive + mx - c.offX + wbx - n1, cyLive + my - c.offY + wby - n2,
-           cxLive + p1.x, cyLive + p1.y);
+    bezier(cxLive + p0x,        cyLive + p0y,
+           cxLive + cp1x + n1,  cyLive + cp1y + n2,
+           cxLive + cp2x - n1,  cyLive + cp2y - n2,
+           cxLive + p1x,        cyLive + p1y);
   }
   drawingContext.shadowBlur = 0;
 
