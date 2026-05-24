@@ -28,7 +28,7 @@ canvas{display:block;cursor:crosshair}
   <div class="controls">
     <span class="key">Clic</span><span class="desc">→ Explosión total</span>
     <span class="key">1 – 4</span><span class="desc">→ Explotar libélula</span>
-    <span class="key">F</span><span class="desc">→ Intercambio entre libélulas</span>
+    <span class="key">I</span><span class="desc">→ Intercambio entre libélulas</span>
     <span class="key">T</span><span class="desc">→ Transformar todas</span>
     <span class="key">G</span><span class="desc">→ Guardar imagen</span>
     <span class="key">R</span><span class="desc">→ Reiniciar</span>
@@ -783,10 +783,10 @@ function keyPressed() {
     }
   }
 
-  // F = Intercambio entre libelulas: dispara una OLA visible de particulas
+  // I = Intercambio entre libelulas: dispara una OLA visible de particulas
   // que viajan desde cada libelula hacia las otras (a velocidad lenta para
   // que se vean los hilos cruzando el lienzo) y vuelven a su libelula.
-  if (key === 'f' || key === 'F') {
+  if (key === 'i' || key === 'I') {
     for (const df of dragonflies) {
       const others = dragonflies.filter(d => d.id !== df.id);
       if (!others.length) continue;
