@@ -6,7 +6,7 @@
 <title>Motor de Chroma</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
 <style>
-:root{--bg:#f5f5f5;--glass:rgba(255,255,255,0.9);--txt:#1d1d1f;--txt2:#86868b;--border:rgba(0,0,0,0.08);--accent:#0071e3;--accent2:#0077ed;--sh1:0 1px 4px rgba(0,0,0,0.05);--sh2:0 4px 14px rgba(0,0,0,0.08);--sh3:0 8px 32px rgba(0,0,0,0.14);--r1:8px;--r2:12px;--r3:18px;--ease:all 0.26s cubic-bezier(0.4,0,0.2,1)}
+:root{--bg:#f5f5f5;--glass:rgba(255,255,255,0.9);--txt:#1d1d1f;--txt2:#86868b;--border:rgba(0,0,0,0.08);--accent:#CE2B37;--accent2:#D63B47;--sh1:0 1px 4px rgba(0,0,0,0.05);--sh2:0 4px 14px rgba(0,0,0,0.08);--sh3:0 8px 32px rgba(0,0,0,0.14);--r1:8px;--r2:12px;--r3:18px;--ease:all 0.26s cubic-bezier(0.4,0,0.2,1)}
 *{margin:0;padding:0;box-sizing:border-box}
 html{scroll-behavior:smooth}
 body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif;background:var(--bg);color:var(--txt);-webkit-font-smoothing:antialiased;min-height:100vh}
@@ -23,7 +23,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-se
 .cb{display:flex;align-items:center;gap:8px;padding:8px 15px;background:var(--glass);backdrop-filter:blur(20px) saturate(180%);border:1px solid var(--border);border-radius:var(--r2);color:var(--txt);font-size:13.5px;font-weight:500;cursor:pointer;transition:var(--ease);box-shadow:var(--sh1);min-width:140px;justify-content:space-between;white-space:nowrap}
 .cb:hover{background:rgba(255,255,255,.95);box-shadow:var(--sh2);transform:translateY(-1px)}
 .cb:active{transform:translateY(0)}
-.cb.pal-on{background:rgba(0,113,227,.08);border-color:rgba(0,113,227,.35);color:var(--accent)}
+.cb.pal-on{background:rgba(206,43,55,.08);border-color:rgba(206,43,55,.35);color:var(--accent)}
 .cb-arrow{font-size:11px;opacity:.5;transition:var(--ease)}
 .cg.open .cb-arrow{transform:rotate(180deg)}
 .btn-dl{display:flex;align-items:center;gap:7px;padding:8px 22px;background:var(--accent);border:none;border-radius:var(--r2);color:#fff;font-size:13.5px;font-weight:500;cursor:pointer;transition:var(--ease);box-shadow:var(--sh1)}
@@ -40,10 +40,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-se
 .era-lbl{padding:9px 13px 3px;font-size:9.5px;font-weight:700;color:rgba(0,0,0,.28);text-transform:uppercase;letter-spacing:.8px}
 .ai{display:flex;justify-content:space-between;align-items:center;padding:8px 13px;border-radius:var(--r1);cursor:pointer;transition:var(--ease);margin:1px 0}
 .ai:hover{background:rgba(0,0,0,.04)}
-.ai.sel{background:rgba(0,113,227,.09);color:var(--accent)}
+.ai.sel{background:rgba(206,43,55,.09);color:var(--accent)}
 .ai-name{font-size:13.5px;font-weight:500}
 .ai-year{font-size:12px;color:var(--txt2)}
-.ai.sel .ai-year{color:rgba(0,113,227,.65)}
+.ai.sel .ai-year{color:rgba(206,43,55,.65)}
 .dd-palette{min-width:340px;max-height:calc(100vh - 120px)}
 .pal-intro{padding:13px 17px 4px;font-size:13px;line-height:1.45;color:var(--txt2)}
 .pal-intro strong{color:var(--txt);font-weight:600;display:block;margin-bottom:3px;font-size:13.5px}
