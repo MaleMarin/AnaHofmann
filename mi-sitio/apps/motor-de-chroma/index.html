@@ -62,8 +62,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-se
 .apply-btn{margin:4px 16px 16px;padding:10px;background:var(--accent);color:#fff;border:none;border-radius:var(--r2);font-size:14px;font-weight:500;cursor:pointer;transition:var(--ease);width:calc(100% - 32px)}
 .apply-btn:hover{background:var(--accent2);transform:translateY(-1px)}
 .dd-settings{min-width:360px}
-.set-body{padding:16px;display:flex;flex-direction:column;gap:17px}
-.setting{display:flex;flex-direction:column;gap:8px}
+.set-body{padding:18px 16px 20px;display:flex;flex-direction:column;gap:22px}
+.setting{display:flex;flex-direction:column;gap:11px}
+.set-body > .setting + .setting,
+.set-body > .setting + .tg-row,
+.set-body > .tg-row + .tg-row{padding-top:18px;border-top:1px solid rgba(0,0,0,.06)}
 .sl-row{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;font-size:14.5px;font-weight:600}
 .setting-copy,.tg-copy{display:block;margin-top:3px;font-size:12px;line-height:1.35;color:rgba(0,0,0,.48);font-weight:400;text-transform:none;letter-spacing:0}
 .sl-val{font-size:12px;color:var(--txt2);font-variant-numeric:tabular-nums;white-space:nowrap;padding-top:2px}
@@ -121,7 +124,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
         <div class="dd-head">Ajustes del canvas</div>
         <div class="set-body">
           <div class="setting"><div class="sl-row"><span>Cantidad de capas<span class="setting-copy">Más capas crean más bandas superpuestas y profundidad.</span></span><span class="sl-val" id="vl">10</span></div><input type="range" id="sl-l" min="1" max="20" value="10"></div>
-          <div class="setting"><div class="sl-row"><span>Giro entre capas<span class="setting-copy">Rota cada capa para cambiar la dirección del tejido.</span></span><span class="sl-val" id="vr">1°</span></div><input type="range" id="sl-r" min="0" max="360" value="1"></div>
+          <div class="setting"><div class="sl-row"><span>Giro entre capas<span class="setting-copy">Rota cada capa para cambiar la dirección de las bandas.</span></span><span class="sl-val" id="vr">1°</span></div><input type="range" id="sl-r" min="0" max="360" value="1"></div>
           <div class="setting"><div class="sl-row"><span>Tamaño de las franjas<span class="setting-copy">Bajo = líneas juntas. Alto = franjas más anchas.</span></span><span class="sl-val" id="vf">7</span></div><input type="range" id="sl-f" min="2" max="60" step="1" value="7"></div>
           <div class="setting"><div class="sl-row"><span>Grosor del borde<span class="setting-copy">Controla qué tan marcado se ve el contorno.</span></span><span class="sl-val" id="vs">0.05</span></div><input type="range" id="sl-s" min="0.05" max="30" step="0.05" value="0.05"></div>
           <div class="setting"><div class="sl-row"><span>Transparencia del color<span class="setting-copy">Baja el valor para mezclar visualmente las capas.</span></span><span class="sl-val" id="va">255</span></div><input type="range" id="sl-a" min="30" max="255" value="255"></div>
