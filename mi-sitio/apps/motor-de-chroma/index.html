@@ -314,7 +314,10 @@ function drawArt(){
   }
 }
 
-function mousePressed(){if(mouseX>=0&&mouseX<=width&&mouseY>=0&&mouseY<=height)drawArt();}
+function mousePressed(e){
+  const target=e&&e.target;
+  if(target&&target.closest&&target.closest('#canvas-container'))drawArt();
+}
 function keyTyped(){if(key==='s')saveCanvas(downloadName(),'jpg');}
 
 function setArtist(key){
