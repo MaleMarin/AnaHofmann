@@ -10,7 +10,7 @@ let cores = [];
 
 const FIBERS_PER_BODY = 1600;
 const CORE_FIBERS     = 90;
-const ROTATION_SPEED  = 0.0006;
+const ROTATION_SPEED  = 0;
 const FIGURE_OFFSET   = 0.22;
 
 function setup() {
