@@ -9,7 +9,8 @@ let fibers = [];
 let cores = [];
 
 const FIBERS_PER_BODY = 1600;
-const CORE_FIBERS     = 90;
+const CORE_FIBERS     = 260;   // mucho mas denso para que el ovillo parezca lana real
+const FUZZ_FIBERS     = 70;    // hilos cortos radiales (pelos sueltos del ovillo)
 const ROTATION_SPEED  = 0;
 const FIGURE_OFFSET   = 0.22;
 
@@ -103,31 +104,70 @@ function buildFigure(cx, cy, bodyW, bodyH) {
   // mas grande que el corazon para que el ovillo sea claramente una "bola".
   const ballR = heartSize * 0.82;
 
-  for (let i = 0; i < CORE_FIBERS; i++) {
-    // Cada hilo del corazon tiene 3 estados precomputados que no cambian
-    // frame a frame: PUNTA (cluster diminuto en el centro), OVILLO (cuerda
-    // que cruza un circulo) y CORAZON (curva limpia parametrica). Al
-    // animar, simplemente interpolamos linealmente entre estos targets.
+  // Coleccion temporal para poder ordenar los hilos por "profundidad" (tone)
+  // y dibujarlos de atras (oscuro) hacia adelante (claro). Esto da
+  // sensacion de capas de lana enrolladas.
+  const localCores = [];
+  const totalCore  = CORE_FIBERS + FUZZ_FIBERS;
 
-    // OVILLO: cuerda cruzando el circulo. p0 y p1 en angulos angA y angB
-    // sobre el circulo de radio ballR. Si la separacion es chica, la cuerda
-    // bordea la pelota; si es grande, la cruza por el centro.
-    const angA = Math.random() * TWO_PI;
-    const angB = angA + Math.PI * (0.35 + Math.random() * 1.30);
-    // Curvatura propia de la cuerda (perpendicular). Signos aleatorios
-    // hacen que algunas cuerdas curven hacia adentro, otras hacia afuera.
-    const ballCurve = (Math.random() - 0.5) * heartSize * 0.85;
+  for (let i = 0; i < totalCore; i++) {
+    const isFuzz = i < FUZZ_FIBERS;
+
+    // Cada hilo del corazon tiene 3 estados precomputados que no cambian
+    // frame a frame: PUNTA, OVILLO y CORAZON. Al animar interpolamos
+    // linealmente entre estos targets.
+    let angA, angB, ballP0X, ballP0Y, ballP1X, ballP1Y, ballCurve;
+
+    if (isFuzz) {
+      // FUZZ: pelitos sueltos. Un trazo cortisimo radial que sale de la
+      // superficie del ovillo hacia afuera (o un poco hacia dentro). Esto
+      // simula los hilos sueltos tipicos de un ovillo real.
+      angA = Math.random() * TWO_PI;
+      angB = angA + (Math.random() - 0.5) * 0.25;
+      const inOff  = ballR * (0.92 + Math.random() * 0.05);
+      const outOff = ballR * (1.06 + Math.random() * 0.18);
+      ballP0X = Math.cos(angA) * inOff;
+      ballP0Y = Math.sin(angA) * inOff;
+      ballP1X = Math.cos(angB) * outOff;
+      ballP1Y = Math.sin(angB) * outOff;
+      ballCurve = (Math.random() - 0.5) * heartSize * 0.04;
+    } else {
+      // OVILLO normal: cuerda que cruza el circulo, con curvatura perpendic.
+      angA = Math.random() * TWO_PI;
+      angB = angA + Math.PI * (0.35 + Math.random() * 1.30);
+      ballP0X = Math.cos(angA) * ballR;
+      ballP0Y = Math.sin(angA) * ballR;
+      ballP1X = Math.cos(angB) * ballR;
+      ballP1Y = Math.sin(angB) * ballR;
+      ballCurve = (Math.random() - 0.5) * heartSize * 0.85;
+    }
+
+    // Tone 0..1: 0 = lana en sombra (parte trasera/abajo), 1 = lana iluminada
+    // (parte delantera/arriba). Se calcula a partir del punto medio del
+    // hilo, mas un pequeño jitter para que no quede en bandas.
+    const midX = (ballP0X + ballP1X) * 0.5;
+    const midY = (ballP0Y + ballP1Y) * 0.5;
+    const rawTone = 0.55 - midY / (ballR * 2) + (Math.random() - 0.5) * 0.22;
+    const tone    = Math.max(0, Math.min(1, rawTone));
+
+    // Variacion de color de lana: rojo oscuro (lana en sombra) -> rojo
+    // calido medio -> salmon claro (lana iluminada). Pequeño jitter de tono
+    // por hilo para que ninguno sea exactamente del mismo color.
+    const jitter = (Math.random() - 0.5) * 18;
+    const colR = Math.round(88  + tone * 168 + jitter);
+    const colG = Math.round(16  + tone * 78  + jitter * 0.6);
+    const colB = Math.round(20  + tone * 58  + jitter * 0.5);
 
     // PUNTA: posicion del hilo cuando todos colapsan a un cluster diminuto.
-    // Un pequeño jitter por fibra para que no sea un solo pixel.
     const pjit = heartSize * 0.04;
 
-    cores.push({
+    localCores.push({
       cx, cy, heartSize,
-      // side = +1 figura derecha, -1 figura izquierda. Sirve para que los
-      // corazones se asomen el uno hacia el otro y se hundan al alejarse.
       side: cx >= 0 ? 1 : -1,
       bodyA: a, bodyB: b,
+      isFuzz,
+      tone,
+      colR, colG, colB,
       // Estado CORAZON:
       t0: Math.random() * TWO_PI,
       t1: Math.random() * TWO_PI,
@@ -135,33 +175,43 @@ function buildFigure(cx, cy, bodyW, bodyH) {
       offY: (Math.random() - 0.5) * heartSize * 0.35,
       // Estado OVILLO:
       ballR,
-      ballP0X: Math.cos(angA) * ballR,
-      ballP0Y: Math.sin(angA) * ballR,
-      ballP1X: Math.cos(angB) * ballR,
-      ballP1Y: Math.sin(angB) * ballR,
+      ballP0X, ballP0Y,
+      ballP1X, ballP1Y,
       ballCurve,
       // Estado PUNTA:
       pointJX: (Math.random() - 0.5) * pjit,
       pointJY: (Math.random() - 0.5) * pjit,
       noiseOff: Math.random() * 1000,
-      weight: 1.2 + Math.random() * 0.8,
+      // Hilos en sombra son un pelin mas finos, hilos iluminados un pelin
+      // mas gruesos -> efecto de relieve.
+      weight: isFuzz ? (0.55 + Math.random() * 0.4)
+                     : (0.95 + tone * 0.9 + Math.random() * 0.35),
+      // Fuzz tiene menos opacidad de base; los hilos del ovillo varian segun tone.
+      alphaBase: isFuzz ? (45 + tone * 70)
+                        : (110 + tone * 130),
     });
   }
+
+  // Orden por tone: primero los oscuros (atras), despues los iluminados
+  // (adelante). Asi se forman capas visibles de lana.
+  localCores.sort((a, b) => a.tone - b.tone);
+  for (const c of localCores) cores.push(c);
 }
 
 // Curva del ciclo PUNTA -> OVILLO -> CORAZON -> OVILLO -> PUNTA con
-// PAUSAS en cada estado y smoothstep en las transiciones.
+// PAUSAS cortas en cada estado y smoothstep en las transiciones rapidas.
 // Devuelve un numero en [0, 2]: 0 = punta, 1 = ovillo, 2 = corazon.
 function heartMorph(phase) {
   const ss = x => x * x * (3 - 2 * x);
-  if      (phase < 0.20) return 0;                            // punta (linger)
-  else if (phase < 0.50) return ss((phase - 0.20) / 0.30);    // punta -> ovillo
-  else if (phase < 0.70) return 1;                            // ovillo (linger)
-  else if (phase < 1.00) return 1 + ss((phase - 0.70) / 0.30);// ovillo -> corazon
-  else if (phase < 1.20) return 2;                            // corazon (linger)
-  else if (phase < 1.50) return 2 - ss((phase - 1.20) / 0.30);// corazon -> ovillo
-  else if (phase < 1.70) return 1;                            // ovillo (linger)
-  else                   return 1 - ss((phase - 1.70) / 0.30);// ovillo -> punta
+  if      (phase < 0.10) return 0;                            // punta (linger corto)
+  else if (phase < 0.32) return ss((phase - 0.10) / 0.22);    // punta -> ovillo (rapido)
+  else if (phase < 0.50) return 1;                            // ovillo (linger corto)
+  else if (phase < 0.72) return 1 + ss((phase - 0.50) / 0.22);// ovillo -> corazon (rapido)
+  else if (phase < 1.00) return 2;                            // corazon (linger)
+  else if (phase < 1.22) return 2 - ss((phase - 1.00) / 0.22);// corazon -> ovillo (rapido)
+  else if (phase < 1.42) return 1;                            // ovillo (linger corto)
+  else if (phase < 1.64) return 1 - ss((phase - 1.42) / 0.22);// ovillo -> punta (rapido)
+  else                   return 0;                            // punta (linger antes de reiniciar)
 }
 
 function draw() {
@@ -172,7 +222,9 @@ function draw() {
   // ── Parametros del ciclo del corazon (se calculan una vez por frame y
   // los usan tanto los spotlights como las fibras del corazon).
   const pulse = 1 + Math.sin(frameCount * 0.05) * 0.18;
-  const phase = (frameCount * 0.0016) % 2;
+  // Ciclo mas rapido: ~12s en total para que el ovillo entre y se forme
+  // sin hacer esperar (antes eran ~21s).
+  const phase = (frameCount * 0.0028) % 2;
   const morph = heartMorph(phase);                          // 0..2
   const inOut = morph - 1;                                  // -1..+1
   const kAB   = Math.min(1, morph);                          // 0..1 (punta -> ovillo)
@@ -183,24 +235,52 @@ function draw() {
   translate(width / 2, height / 2);
   rotate(frameCount * ROTATION_SPEED);
 
-  // ── Spotlights cinematograficos detras de cada corazon. Pulsan suavemente
-  // con el latido y crecen/decaen segun la fase del ciclo (mas brillantes
-  // cuando el corazon esta desplegado como CORAZON, mas tenues como PUNTA).
+  // ── Iluminacion cinematografica detras de cada corazon. Mas suave y
+  // difusa, con sombra proyectada hacia abajo para dar sensacion de
+  // contacto y peso. El glow pulsa suavemente con el latido.
+  const coresPerBody = CORE_FIBERS + FUZZ_FIBERS;
   if (cores.length) {
+    // 1) SOMBRA proyectada bajo el corazon: blob oscuro elongado.
+    //    Se dibuja en modo normal (no lighter) para que oscurezca el fondo.
+    for (let f = 0; f < 2; f++) {
+      const c = cores[f * coresPerBody];
+      if (!c) continue;
+      const dxHeart = -c.side * inOut * c.bodyA * 1.10;
+      const cxLive  = c.cx + dxHeart;
+      const cyLive  = c.cy;
+      const shadowIntensity = visible * (0.55 + kBC * 0.45);
+      const sRad = c.heartSize * 1.9;
+      const sCx  = cxLive + c.side * c.heartSize * 0.12;
+      const sCy  = cyLive + c.heartSize * 0.55;
+      const sGrad = drawingContext.createRadialGradient(sCx, sCy, 0, sCx, sCy, sRad);
+      sGrad.addColorStop(0,    `rgba(0, 0, 0, ${0.55 * shadowIntensity})`);
+      sGrad.addColorStop(0.45, `rgba(0, 0, 0, ${0.28 * shadowIntensity})`);
+      sGrad.addColorStop(1,     'rgba(0, 0, 0, 0)');
+      drawingContext.fillStyle = sGrad;
+      drawingContext.save();
+      drawingContext.translate(sCx, sCy);
+      drawingContext.scale(1.0, 0.42);
+      drawingContext.translate(-sCx, -sCy);
+      drawingContext.fillRect(sCx - sRad, sCy - sRad, sRad * 2, sRad * 2);
+      drawingContext.restore();
+    }
+
+    // 2) GLOW calido suave detras del corazon, mucho mas difuso y tenue
+    //    que antes. Tres parejas de gradients (mas radio + menos alpha).
     const prevComp = drawingContext.globalCompositeOperation;
     drawingContext.globalCompositeOperation = 'lighter';
     for (let f = 0; f < 2; f++) {
-      const c = cores[f * CORE_FIBERS];
+      const c = cores[f * coresPerBody];
       if (!c) continue;
       const dxHeart = -c.side * inOut * c.bodyA * 1.10;
-      const cxLive = c.cx + dxHeart;
-      const cyLive = c.cy;
-      const intensity = visible * (0.45 + kBC * 0.55) * (0.95 + (pulse - 1) * 0.5);
-      const radius = c.heartSize * 5.0;
+      const cxLive  = c.cx + dxHeart;
+      const cyLive  = c.cy;
+      const intensity = visible * (0.40 + kBC * 0.55) * (0.95 + (pulse - 1) * 0.5);
+      const radius = c.heartSize * 6.4;
       const grad = drawingContext.createRadialGradient(cxLive, cyLive, 0, cxLive, cyLive, radius);
-      grad.addColorStop(0,    `rgba(255, 90, 60, ${0.42 * intensity})`);
-      grad.addColorStop(0.18, `rgba(200, 50, 35, ${0.28 * intensity})`);
-      grad.addColorStop(0.55, `rgba(110, 20, 15, ${0.12 * intensity})`);
+      grad.addColorStop(0,    `rgba(255, 110, 80, ${0.18 * intensity})`);
+      grad.addColorStop(0.16, `rgba(210, 60, 45, ${0.14 * intensity})`);
+      grad.addColorStop(0.42, `rgba(120, 28, 22, ${0.07 * intensity})`);
       grad.addColorStop(1,     'rgba(0, 0, 0, 0)');
       drawingContext.fillStyle = grad;
       drawingContext.fillRect(cxLive - radius, cyLive - radius, radius * 2, radius * 2);
@@ -238,8 +318,9 @@ function draw() {
   // adentro, como ovillo asoma a la mitad, como corazon esta afuera asomado.
   // pulse, phase, morph, inOut, kAB, kBC y visible ya fueron calculados al
   // principio de draw() (se comparten con los spotlights).
-  drawingContext.shadowBlur  = (32 + Math.sin(frameCount * 0.05) * 12) * visible;
-  drawingContext.shadowColor = `rgba(255, 60, 40, ${visible})`;
+  // Glow suave alrededor de los hilos del corazon (menos intenso, mas amplio).
+  drawingContext.shadowBlur  = (44 + Math.sin(frameCount * 0.05) * 14) * visible;
+  drawingContext.shadowColor = `rgba(255, 70, 50, ${0.55 * visible})`;
 
   const tc = frameCount * 0.010;
 
@@ -300,8 +381,22 @@ function draw() {
     const n1 = (noise(c.noiseOff,      tc) - 0.5) * 6;
     const n2 = (noise(c.noiseOff + 50, tc) - 0.5) * 6;
 
-    const alpha = 90 + 150 * visible;
-    stroke(225, 35, 40, alpha);
+    // Mezcla de color: en OVILLO usamos el color tonal de lana (con
+    // sombras y luces); cuando muta a CORAZON, los hilos convergen hacia
+    // un rojo unificado mas saturado.
+    const woolAmt  = 1 - kBC;
+    const heartAmt = kBC;
+    const baseR = c.colR * woolAmt + 220 * heartAmt;
+    const baseG = c.colG * woolAmt + 32  * heartAmt;
+    const baseB = c.colB * woolAmt + 38  * heartAmt;
+
+    // Alpha precomputado (ya incorpora el tone). Fuzz se desvanece cuando
+    // el ovillo se transforma en corazon (los pelitos no tienen sentido en
+    // la forma de corazon).
+    const fadeOut = c.isFuzz ? (1 - kBC) : 1;
+    const alpha   = c.alphaBase * visible * fadeOut;
+
+    stroke(baseR, baseG, baseB, alpha);
     strokeWeight(c.weight);
     bezier(cxLive + p0x,        cyLive + p0y,
            cxLive + cp1x + n1,  cyLive + cp1y + n2,
@@ -317,15 +412,17 @@ function draw() {
 }
 
 // Vignette radial: transparente en el centro, casi negro hacia los bordes.
+// Se profundiza mas que antes para que las sombras envuelvan el cuadro.
 function drawVignette() {
   const cx = width / 2;
   const cy = height / 2;
-  const rMin = Math.min(width, height) * 0.32;
-  const rMax = Math.max(width, height) * 0.85;
+  const rMin = Math.min(width, height) * 0.28;
+  const rMax = Math.max(width, height) * 0.92;
   const grad = drawingContext.createRadialGradient(cx, cy, rMin, cx, cy, rMax);
   grad.addColorStop(0,    'rgba(0, 0, 0, 0)');
-  grad.addColorStop(0.55, 'rgba(0, 0, 0, 0.45)');
-  grad.addColorStop(1,    'rgba(0, 0, 0, 0.92)');
+  grad.addColorStop(0.45, 'rgba(0, 0, 0, 0.35)');
+  grad.addColorStop(0.75, 'rgba(0, 0, 0, 0.72)');
+  grad.addColorStop(1,    'rgba(0, 0, 0, 0.97)');
   drawingContext.fillStyle = grad;
   drawingContext.fillRect(0, 0, width, height);
 }
