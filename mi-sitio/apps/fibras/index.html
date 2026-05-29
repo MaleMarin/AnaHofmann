@@ -9,8 +9,28 @@
   canvas{display:block}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/addons/p5.sound.min.js"></script>
 </head>
 <body>
-<script src="/apps/fibras/sketch.js?v=22"></script>
+<button id="soundToggle" style="
+position: fixed;
+right: 24px;
+bottom: 24px;
+z-index: 20;
+background: rgba(255,255,255,0.08);
+color: rgba(240,235,228,0.78);
+border: 1px solid rgba(255,255,255,0.18);
+border-radius: 999px;
+padding: 10px 16px;
+font-family: monospace;
+font-size: 12px;
+letter-spacing: .16em;
+text-transform: uppercase;
+backdrop-filter: blur(10px);
+cursor: pointer;
+">
+activar sonido
+</button>
+<script src="/apps/fibras/sketch.js?v=100"></script>
 </body>
 </html>
