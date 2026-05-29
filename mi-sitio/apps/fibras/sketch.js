@@ -1,44 +1,46 @@
 /*
- * Anatomía de la Distancia — versión 5
- * Pulso cardíaco + sonido sincronizado.
+ * Anatomía de la Distancia — versión 6
+ * Densidad y color tomados de una imagen de referencia.
  *
- * Técnica de cuerpo:
- *   - p5.Graphics oculto (bodyMask) por cada FiberBody con silueta humana
- *     fusionada (cabeza/cuello/torso/brazos/piernas) y blur global.
- *   - Las partículas se muestrean por rejection sampling ponderado por
- *     la densidad de la máscara.
- *   - Cada partícula: ancla local, velocidad, historial, color por zona
- *     vertical + foco cardíaco. Trazo con curveVertex sobre el historial.
- *
- * Pulso (lub-dub):
- *   - heartbeatPulse(t) devuelve 0..1 con dos golpes por ciclo,
- *     ~ 65 bpm (período 0.92s). Modula alpha global, escala del cuerpo,
- *     brillo del corazón, y amplitud del oscilador.
- *
- * Sonido:
- *   - Oscilador sub-bass (sine 55Hz) + segundo armónico (110Hz) con
- *     filtro pasa-bajos y amplitud manejada manualmente por el pulso.
- *   - Se inicia con el botón #soundToggle (gesto de usuario requerido).
+ *  - preload() carga apps/fibras/assets/cuerpo-ref.png
+ *  - Cada FiberBody dibuja la imagen en un p5.Graphics oculto (mask),
+ *    el derecho espejado horizontalmente.
+ *  - Las partículas se muestrean por rejection sampling ponderado por
+ *    el BRILLO del píxel (ignora el fondo negro).
+ *  - El COLOR de cada fibra se hereda del píxel donde nació →
+ *    la composición cromática del referente se preserva.
+ *  - Pulso cardíaco (lub-dub) modula intensidad, escala del cuerpo,
+ *    brillo del foco cardíaco y la amplitud del oscilador.
+ *  - Sonido: sub-bass + armónico con LowPass, activado por #soundToggle.
  */
 
 let bodies = [];
 let bridges = [];
 let centerField = [];
 
+let bodyRefImg;
+
+// configurable: posición relativa de cabeza/corazón dentro de la imagen
+// la imagen original tiene cabeza rosa abajo-izquierda
+const HEAD_REL  = { x: 0.13, y: 0.52 };
+const HEART_REL = { x: 0.26, y: 0.43 };
+
 const QUALITY = 1.0;
 const BG_FADE = 30;
-const FIBERS_PER_BODY = 3800;
+const FIBERS_PER_BODY = 4200;
 const BRIDGE_HEART = 220;
 const BRIDGE_HEAD = 100;
 const FIELD_COUNT = 520;
 
-// pulso global compartido con el sonido
 let globalPulse = 0;
 
-// audio
 let bassOsc, subOsc, filterNode;
 let soundOn = false;
 let audioReady = false;
+
+function preload() {
+  bodyRefImg = loadImage("/apps/fibras/assets/cuerpo-ref.png");
+}
 
 function setup() {
   createCanvas(windowWidth, windowHeight);
@@ -62,11 +64,9 @@ function buildScene() {
   bridges = [];
   centerField = [];
 
-  const sep = min(width * 0.22, 280);
-  const cy = height * 0.54;
-
-  bodies.push(new FiberBody(width * 0.5 - sep, cy, 1, 0.0));
-  bodies.push(new FiberBody(width * 0.5 + sep, cy, -1, PI * 0.7));
+  // dos cuerpos enfrentados, espejados
+  bodies.push(new FiberBody(width * 0.27, height * 0.50, false, 0.0));
+  bodies.push(new FiberBody(width * 0.73, height * 0.50, true,  PI * 0.7));
 
   for (let i = 0; i < floor(BRIDGE_HEART * QUALITY); i++) {
     bridges.push(new BridgeStrand("heart", random(), random(1000)));
@@ -83,7 +83,6 @@ function buildScene() {
 function draw() {
   background(0, BG_FADE);
 
-  // ------------- pulso cardíaco -------------
   const t = millis() / 1000;
   globalPulse = heartbeatPulse(t);
   applyAudioPulse(globalPulse);
@@ -91,18 +90,9 @@ function draw() {
   const prev = drawingContext.globalCompositeOperation;
   drawingContext.globalCompositeOperation = "lighter";
 
-  for (const b of bodies) {
-    b.update();
-    b.display();
-  }
-  for (const b of bridges) {
-    b.update();
-    b.display();
-  }
-  for (const w of centerField) {
-    w.update();
-    w.display();
-  }
+  for (const b of bodies) { b.update(); b.display(); }
+  for (const b of bridges) { b.update(); b.display(); }
+  for (const w of centerField) { w.update(); w.display(); }
 
   drawingContext.globalCompositeOperation = prev;
 
@@ -115,23 +105,15 @@ function draw() {
    HEARTBEAT
 ========================================================= */
 
-// devuelve 0..1 con un ciclo lub-dub
 function heartbeatPulse(t) {
-  const period = 0.92;           // ~65 bpm
+  const period = 0.92;
   const x = (t % period) / period;
-
-  // lub (golpe fuerte)
   const lub = Math.exp(-Math.pow((x - 0.00) / 0.045, 2));
-  // dub (golpe más corto, levemente desplazado)
   const dub = 0.72 * Math.exp(-Math.pow((x - 0.20) / 0.055, 2));
-
-  // base suave para que nunca se apague del todo
   const base = 0.18;
-
   return constrain(base + max(lub, dub) * 0.82, 0, 1);
 }
 
-// envelope de intensidad para fibras (más contraste)
 function fiberIntensity() {
   return 0.45 + globalPulse * 0.85;
 }
@@ -145,24 +127,13 @@ function setupSoundUI() {
   if (!btn) return;
 
   btn.addEventListener("click", async () => {
-    try {
-      await userStartAudio();
-    } catch (e) {
-      console.warn("userStartAudio fallback", e);
-    }
-
+    try { await userStartAudio(); } catch (e) { console.warn(e); }
     if (!audioReady) buildAudio();
-
     soundOn = !soundOn;
-
-    if (soundOn) {
-      bassOsc.amp(0.0001, 0.01);
-      subOsc.amp(0.0001, 0.01);
-      btn.textContent = "silenciar";
-    } else {
-      bassOsc.amp(0.0, 0.1);
-      subOsc.amp(0.0, 0.1);
-      btn.textContent = "activar sonido";
+    btn.textContent = soundOn ? "silenciar" : "activar sonido";
+    if (!soundOn) {
+      bassOsc.amp(0, 0.1);
+      subOsc.amp(0, 0.1);
     }
   });
 }
@@ -191,28 +162,36 @@ function buildAudio() {
 
 function applyAudioPulse(p) {
   if (!soundOn || !audioReady) return;
-
-  const env = pow(p, 1.6); // más percusivo
+  const env = pow(p, 1.6);
   bassOsc.amp(env * 0.42, 0.02);
   subOsc.amp(env * 0.18, 0.02);
-
-  // filtro abriéndose con el pulso → "boom" más vivo
   filterNode.freq(280 + p * 520);
 }
 
 /* =========================================================
-   BODY  —  silhouette mask + fiber sampling
+   FIBER BODY  —  imagen como mapa de densidad y color
 ========================================================= */
 
 class FiberBody {
-  constructor(cx, cy, facing, phase) {
+  constructor(cx, cy, mirror, phase) {
     this.cx = cx;
     this.cy = cy;
-    this.facing = facing;
+    this.mirror = mirror;
     this.phase = phase;
 
-    this.bodyH = min(height * 0.88, 760);
-    this.bodyW = this.bodyH * 0.52;
+    // aspect ratio = aspect de la imagen, sin deformar
+    const aspect = bodyRefImg.width / bodyRefImg.height;
+
+    let w = min(width * 0.48, 820);
+    let h = w / aspect;
+    const maxH = height * 0.82;
+    if (h > maxH) {
+      h = maxH;
+      w = h * aspect;
+    }
+
+    this.bodyW = w;
+    this.bodyH = h;
 
     this.buildMask();
     this.buildFibers();
@@ -221,51 +200,26 @@ class FiberBody {
   buildMask() {
     const g = createGraphics(floor(this.bodyW), floor(this.bodyH));
     g.pixelDensity(1);
-    g.background(0);
-    g.noStroke();
-    g.fill(255);
+    g.clear();
 
-    const s = this.bodyH / 760;
-    const cx = this.bodyW * 0.5;
-
-    g.drawingContext.filter = "blur(16px)";
-
-    g.ellipse(cx, 70 * s, 95 * s, 115 * s);
-    g.ellipse(cx, 145 * s, 45 * s, 55 * s);
-    g.ellipse(cx, 195 * s, 195 * s, 90 * s);
-    g.ellipse(cx, 245 * s, 185 * s, 130 * s);
-    g.ellipse(cx, 365 * s, 165 * s, 165 * s);
-    g.ellipse(cx, 480 * s, 155 * s, 120 * s);
-
-    const armX = 105 * s;
-    g.ellipse(cx - armX, 215 * s, 60 * s, 80 * s);
-    g.ellipse(cx + armX, 215 * s, 60 * s, 80 * s);
-    g.ellipse(cx - armX - 8 * s, 285 * s, 55 * s, 110 * s);
-    g.ellipse(cx + armX + 8 * s, 285 * s, 55 * s, 110 * s);
-    g.ellipse(cx - armX - 4 * s, 380 * s, 50 * s, 110 * s);
-    g.ellipse(cx + armX + 4 * s, 380 * s, 50 * s, 110 * s);
-    g.ellipse(cx - armX + 6 * s, 470 * s, 42 * s, 60 * s);
-    g.ellipse(cx + armX - 6 * s, 470 * s, 42 * s, 60 * s);
-
-    const legX = 42 * s;
-    g.ellipse(cx - legX, 555 * s, 80 * s, 130 * s);
-    g.ellipse(cx + legX, 555 * s, 80 * s, 130 * s);
-    g.ellipse(cx - legX - 4 * s, 640 * s, 65 * s, 110 * s);
-    g.ellipse(cx + legX + 4 * s, 640 * s, 65 * s, 110 * s);
-    g.ellipse(cx - legX, 720 * s, 55 * s, 70 * s);
-    g.ellipse(cx + legX, 720 * s, 55 * s, 70 * s);
-
-    g.drawingContext.filter = "none";
+    if (this.mirror) {
+      g.push();
+      g.translate(g.width, 0);
+      g.scale(-1, 1);
+      g.image(bodyRefImg, 0, 0, g.width, g.height);
+      g.pop();
+    } else {
+      g.image(bodyRefImg, 0, 0, g.width, g.height);
+    }
 
     g.loadPixels();
     this.mask = g;
 
-    this.scale = s;
-    this.localHeart = {
-      x: cx + this.facing * 30 * s,
-      y: 245 * s,
-    };
-    this.localHead = { x: cx, y: 70 * s };
+    // anclas internas, espejadas si corresponde
+    const hx  = this.mirror ? 1 - HEAD_REL.x  : HEAD_REL.x;
+    const hrx = this.mirror ? 1 - HEART_REL.x : HEART_REL.x;
+    this.localHead  = { x: hx  * this.bodyW, y: HEAD_REL.y  * this.bodyH };
+    this.localHeart = { x: hrx * this.bodyW, y: HEART_REL.y * this.bodyH };
   }
 
   buildFibers() {
@@ -276,29 +230,33 @@ class FiberBody {
     const px = this.mask.pixels;
 
     let attempts = 0;
-    const maxAttempts = target * 40;
+    const maxAttempts = target * 60;
 
     while (this.fibers.length < target && attempts < maxAttempts) {
       attempts++;
       const lx = random(w);
       const ly = random(h);
       const idx = (floor(ly) * w + floor(lx)) * 4;
-      const a = px[idx];
-      if (a < 20) continue;
-      if (random(255) > a) continue;
-      this.fibers.push(new Fiber(this, lx, ly, a));
+      const r = px[idx];
+      const g = px[idx + 1];
+      const b = px[idx + 2];
+      const brightness = (r + g + b) / 3;
+      if (brightness < 14) continue;
+      // probabilidad proporcional al brillo
+      if (random(255) > brightness * 1.3) continue;
+
+      this.fibers.push(new Fiber(this, lx, ly, brightness, r, g, b));
     }
   }
 
   motion() {
-    // breath cardíaco: la escala del cuerpo se expande con el lub-dub
     const pulse = globalPulse;
     return {
       swayX: sin(frameCount * 0.0095 + this.phase) * 5.5,
       swayY: cos(frameCount * 0.0125 + this.phase) * 2.2,
       breath: sin(frameCount * 0.028 + this.phase),
       pulseScale: 1 + pulse * 0.045,
-      tilt: sin(frameCount * 0.008 + this.phase) * 0.035,
+      tilt: sin(frameCount * 0.008 + this.phase) * 0.030,
     };
   }
 
@@ -320,35 +278,37 @@ class FiberBody {
     };
   }
 
-  heartCenter() {
-    return this.toWorld(this.localHeart.x, this.localHeart.y);
-  }
-  headCenter() {
-    return this.toWorld(this.localHead.x, this.localHead.y);
-  }
+  heartCenter() { return this.toWorld(this.localHeart.x, this.localHeart.y); }
+  headCenter()  { return this.toWorld(this.localHead.x,  this.localHead.y);  }
 
-  update() {
-    for (const f of this.fibers) f.update();
-  }
-
-  display() {
-    for (const f of this.fibers) f.display();
-  }
+  update()  { for (const f of this.fibers) f.update(); }
+  display() { for (const f of this.fibers) f.display(); }
 }
 
 /* =========================================================
-   FIBER
+   FIBER  —  color heredado del referente
 ========================================================= */
 
 class Fiber {
-  constructor(body, lx, ly, density) {
+  constructor(body, lx, ly, density, pr, pg, pb) {
     this.body = body;
     this.lx = lx;
     this.ly = ly;
     this.seed = random(10000);
 
-    this.assignColor();
+    // color del píxel del referente, con leve boost de saturación / variación
+    const boost = 1.25;
+    this.r = constrain(pr * boost + random(-14, 14), 0, 255);
+    this.g = constrain(pg * boost + random(-14, 14), 0, 255);
+    this.b = constrain(pb * boost + random(-14, 14), 0, 255);
 
+    // foco cardíaco
+    const dHeart = dist(lx, ly, body.localHeart.x, body.localHeart.y);
+    const heartR = min(body.bodyW, body.bodyH) * 0.10;
+    this.isHeart = dHeart < heartR;
+    this.alphaBoost = this.isHeart ? 1.35 + (1 - dHeart / heartR) * 0.8 : 1.0;
+
+    // física
     this.speed = random(0.28, 1.05);
     this.pull = random(0.022, 0.050);
     this.wander = random(0.45, 1.50);
@@ -369,94 +329,18 @@ class Fiber {
     }
   }
 
-  assignColor() {
-    const t = this.ly / this.body.bodyH;
-    const heart = this.body.localHeart;
-    const dHeart = dist(this.lx, this.ly, heart.x, heart.y);
-    const heartGlow = constrain(map(dHeart, 0, 90 * this.body.scale, 1, 0), 0, 1);
-
-    let palette;
-    if (heartGlow > 0.30 && random() < heartGlow * 0.95) {
-      palette = [
-        [255, 55, 90],
-        [255, 110, 140],
-        [255, 170, 180],
-      ];
-      this.alphaBoost = 1.2 + heartGlow * 1.1;
-      this.isHeart = true;
-    } else if (t < 0.14) {
-      palette = [
-        [255, 90, 160],
-        [255, 130, 90],
-        [220, 70, 145],
-      ];
-      this.alphaBoost = 1.15;
-      this.isHeart = false;
-    } else if (t < 0.22) {
-      palette = [
-        [255, 110, 120],
-        [230, 100, 160],
-        [255, 140, 100],
-      ];
-      this.alphaBoost = 1.05;
-      this.isHeart = false;
-    } else if (t < 0.45) {
-      palette = [
-        [90, 220, 245],
-        [80, 255, 200],
-        [140, 220, 255],
-        [95, 190, 230],
-      ];
-      this.alphaBoost = 1.05;
-      this.isHeart = false;
-    } else if (t < 0.65) {
-      palette = [
-        [180, 90, 250],
-        [150, 70, 215],
-        [220, 100, 255],
-        [255, 130, 80],
-      ];
-      this.alphaBoost = 1.05;
-      this.isHeart = false;
-    } else if (t < 0.80) {
-      palette = [
-        [255, 150, 80],
-        [210, 90, 220],
-        [245, 180, 95],
-      ];
-      this.alphaBoost = 1.0;
-      this.isHeart = false;
-    } else {
-      palette = [
-        [240, 240, 255],
-        [255, 215, 90],
-        [120, 175, 255],
-      ];
-      this.alphaBoost = 0.95;
-      this.isHeart = false;
-    }
-
-    const c = random(palette);
-    this.r = constrain(c[0] + random(-15, 15), 0, 255);
-    this.g = constrain(c[1] + random(-15, 15), 0, 255);
-    this.b = constrain(c[2] + random(-15, 15), 0, 255);
-  }
-
   update() {
     const t = this.body.toWorld(this.lx, this.ly);
 
     const ang =
       noise(this.x * 0.0030, this.y * 0.0030, frameCount * 0.0060 + this.seed) *
-      TWO_PI *
-      2.4;
+      TWO_PI * 2.4;
 
     const flowX = cos(ang) * this.speed * 0.30;
     const flowY = sin(ang) * this.speed * 0.30;
 
-    const jitterX =
-      (noise(this.seed + 10, frameCount * 0.022) - 0.5) * this.wander;
-    const jitterY =
-      (noise(this.seed + 30, frameCount * 0.022) - 0.5) * this.wander;
+    const jitterX = (noise(this.seed + 10, frameCount * 0.022) - 0.5) * this.wander;
+    const jitterY = (noise(this.seed + 30, frameCount * 0.022) - 0.5) * this.wander;
 
     this.vx = this.vx * 0.84 + flowX + (t.x - this.x) * this.pull + jitterX;
     this.vy = this.vy * 0.84 + flowY + (t.y - this.y) * this.pull + jitterY;
@@ -478,10 +362,8 @@ class Fiber {
 
   display() {
     if (this.history.length < 4) return;
-
     const flicker = 0.85 + noise(this.seed, frameCount * 0.028) * 0.30;
     const intensity = fiberIntensity();
-    // fibras del corazón empujadas aún más fuerte por el pulso
     const heartBoost = this.isHeart ? 1 + globalPulse * 0.9 : 1;
 
     stroke(
@@ -514,18 +396,9 @@ class BridgeStrand {
     this.history = [];
 
     const heartish = kind === "heart";
-
     this.col = heartish
-      ? random([
-          [255, 45, 100],
-          [255, 90, 160],
-          [210, 80, 255],
-        ])
-      : random([
-          [120, 80, 210],
-          [90, 140, 255],
-          [185, 95, 255],
-        ]);
+      ? random([[255,45,100],[255,90,160],[210,80,255]])
+      : random([[120,80,210],[90,140,255],[185,95,255]]);
 
     this.alpha = heartish ? random(8, 24) : random(4, 12);
     this.weight = heartish ? random(0.32, 0.95) : random(0.22, 0.62);
@@ -541,22 +414,19 @@ class BridgeStrand {
   target() {
     const left = bodies[0];
     const right = bodies[1];
-
-    const a = this.kind === "heart" ? left.heartCenter() : left.headCenter();
+    const a = this.kind === "heart" ? left.heartCenter()  : left.headCenter();
     const b = this.kind === "heart" ? right.heartCenter() : right.headCenter();
 
     const lift = this.kind === "heart" ? 14 : -68;
-    const bow = this.kind === "heart" ? 28 : 54;
+    const bow  = this.kind === "heart" ? 28 :  54;
 
     const c1 = {
       x: lerp(a.x, b.x, 0.32),
-      y:
-        lerp(a.y, b.y, 0.32) + lift + sin(frameCount * 0.012 + this.seed) * bow,
+      y: lerp(a.y, b.y, 0.32) + lift + sin(frameCount * 0.012 + this.seed) * bow,
     };
     const c2 = {
       x: lerp(a.x, b.x, 0.68),
-      y:
-        lerp(a.y, b.y, 0.68) + lift + cos(frameCount * 0.012 + this.seed) * bow,
+      y: lerp(a.y, b.y, 0.68) + lift + cos(frameCount * 0.012 + this.seed) * bow,
     };
 
     const bx = bezierPoint(a.x, c1.x, c2.x, b.x, this.t);
@@ -572,8 +442,7 @@ class BridgeStrand {
     const t = this.target();
     const ang =
       noise(this.x * 0.003, this.y * 0.003, frameCount * 0.007 + this.seed) *
-      TWO_PI *
-      2.2;
+      TWO_PI * 2.2;
 
     const flowX = cos(ang) * this.speed * 0.28;
     const flowY = sin(ang) * this.speed * 0.28;
@@ -591,7 +460,10 @@ class BridgeStrand {
   display() {
     if (this.history.length < 4) return;
     const flick = 0.85 + noise(this.seed, frameCount * 0.025) * 0.30;
-    const heartBoost = this.kind === "heart" ? 1 + globalPulse * 1.1 : 1 + globalPulse * 0.25;
+    const heartBoost = this.kind === "heart"
+      ? 1 + globalPulse * 1.1
+      : 1 + globalPulse * 0.25;
+
     stroke(
       this.col[0], this.col[1], this.col[2],
       this.alpha * flick * fiberIntensity() * heartBoost
@@ -609,7 +481,7 @@ class BridgeStrand {
 }
 
 /* =========================================================
-   FIELD  —  interferencia central
+   FIELD
 ========================================================= */
 
 class FieldWhisper {
@@ -621,7 +493,7 @@ class FieldWhisper {
       0.45
     );
     this.ax = width * 0.5 + p.x;
-    this.ay = height * 0.53 + p.y;
+    this.ay = height * 0.50 + p.y;
 
     this.x = this.ax;
     this.y = this.ay;
@@ -651,14 +523,13 @@ class FieldWhisper {
 
     const pulse =
       (sin(frameCount * 0.027 + bodies[0].phase) +
-        sin(frameCount * 0.027 + bodies[1].phase)) *
-      0.5;
+        sin(frameCount * 0.027 + bodies[1].phase)) * 0.5;
 
     return {
       x: width * 0.5 + (this.ax - width * 0.5) * (1 + pulse * 0.06),
       y:
-        height * 0.53 +
-        (this.ay - height * 0.53) * (1 + pulse * 0.08) +
+        height * 0.50 +
+        (this.ay - height * 0.50) * (1 + pulse * 0.08) +
         sin(frameCount * 0.010 + this.seed) * 6 +
         map(abs(leftH.x - rightH.x), 0, width, 0, 8),
     };
@@ -668,8 +539,7 @@ class FieldWhisper {
     const t = this.target();
     const ang =
       noise(this.x * 0.0034, this.y * 0.0034, frameCount * 0.010 + this.seed) *
-      TWO_PI *
-      3.0;
+      TWO_PI * 3.0;
 
     const flowX = cos(ang) * this.speed * 0.32;
     const flowY = sin(ang) * this.speed * 0.32;
@@ -714,7 +584,7 @@ class FieldWhisper {
 }
 
 /* =========================================================
-   HEART FLASH  —  resplandor radial sobre los corazones
+   HEART FLASH
 ========================================================= */
 
 function drawHeartFlash() {
@@ -726,10 +596,7 @@ function drawHeartFlash() {
   for (const body of bodies) {
     const h = body.heartCenter();
     const radius = 180 + globalPulse * 120;
-    const grad = drawingContext.createRadialGradient(
-      h.x, h.y, 0,
-      h.x, h.y, radius
-    );
+    const grad = drawingContext.createRadialGradient(h.x, h.y, 0, h.x, h.y, radius);
     const a = globalPulse * 0.45;
     grad.addColorStop(0.00, `rgba(255, 80, 110, ${a})`);
     grad.addColorStop(0.35, `rgba(255, 55, 130, ${a * 0.55})`);
@@ -758,10 +625,7 @@ function drawVignette() {
   const inner = min(width, height) * 0.20;
   const outer = max(width, height) * 0.82;
 
-  const grad = drawingContext.createRadialGradient(
-    cx, cy, inner,
-    cx, cy, outer
-  );
+  const grad = drawingContext.createRadialGradient(cx, cy, inner, cx, cy, outer);
   grad.addColorStop(0.00, "rgba(0,0,0,0)");
   grad.addColorStop(0.60, "rgba(0,0,0,0.10)");
   grad.addColorStop(0.82, "rgba(0,0,0,0.48)");
