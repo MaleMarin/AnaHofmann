@@ -1,457 +1,563 @@
 /*
- * Anatomía de la Distancia
- * Versión limpia: cuerpos de microfibras luminosas
- * Dos cuerpos abstractos enfrentados, sin manchas negras ni contornos duros.
+ * Anatomía de la Distancia — versión 4
+ * Cuerpos construidos desde una máscara invisible
+ * p5.js
  */
 
-let leftBody;
-let rightBody;
-let signals = [];
+let leftBody, rightBody;
+let bridgeStrands = [];
+let fieldNoise = [];
 
-const BODY_SCALE = 1.0;
-const FIBERS_PER_BODY = 5200;
-const SIGNAL_COUNT = 420;
+const BODY_SEPARATION = 230;
+const BG_ALPHA = 34;      // menor = más estela
+const BODY_PARTICLES = 2600;
+const BRIDGE_COUNT = 180;
+const FIELD_COUNT = 420;
+const USE_LIGHTER = true;
 
 function setup() {
   createCanvas(windowWidth, windowHeight);
   pixelDensity(1);
-  strokeCap(ROUND);
   noFill();
+  strokeCap(ROUND);
+  strokeJoin(ROUND);
   buildScene();
+  background(0);
 }
 
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
   buildScene();
+  background(0);
 }
 
 function buildScene() {
-  const sep = min(width * 0.24, 310);
-  const cy = height * 0.54;
+  const cy = height * 0.56;
 
-  leftBody = new WoolBody(width / 2 - sep, cy, 1);
-  rightBody = new WoolBody(width / 2 + sep, cy, -1);
+  leftBody = new MaskBody(width * 0.5 - BODY_SEPARATION, cy, 1, 0.0);
+  rightBody = new MaskBody(width * 0.5 + BODY_SEPARATION, cy, -1, PI * 0.8);
 
-  signals = [];
-  for (let i = 0; i < SIGNAL_COUNT; i++) {
-    signals.push(new DistanceSignal());
+  bridgeStrands = [];
+  for (let i = 0; i < BRIDGE_COUNT; i++) {
+    bridgeStrands.push(new BridgeFiber(random(), random(1000), random() < 0.7 ? "heart" : "head"));
+  }
+
+  fieldNoise = [];
+  for (let i = 0; i < FIELD_COUNT; i++) {
+    fieldNoise.push(new FieldFiber(random(1000)));
   }
 }
 
 function draw() {
-  background(0);
+  background(0, BG_ALPHA);
 
-  drawingContext.globalCompositeOperation = "lighter";
+  const prevComp = drawingContext.globalCompositeOperation;
+  if (USE_LIGHTER) drawingContext.globalCompositeOperation = "lighter";
 
-  leftBody.draw();
-  rightBody.draw();
+  leftBody.update();
+  rightBody.update();
 
-  for (const s of signals) {
-    s.draw();
+  leftBody.display();
+  rightBody.display();
+
+  for (const b of bridgeStrands) {
+    b.update();
+    b.display();
   }
 
-  drawingContext.globalCompositeOperation = "source-over";
+  for (const f of fieldNoise) {
+    f.update();
+    f.display();
+  }
 
+  drawingContext.globalCompositeOperation = prevComp;
+
+  drawVignette();
   drawTitle();
-  drawSoftVignette();
 }
 
-/* =========================
-   CUERPO DE LANA
-========================= */
+/* =========================================================
+   MASK BODY
+========================================================= */
 
-class WoolBody {
-  constructor(cx, cy, facing) {
+class MaskBody {
+  constructor(cx, cy, facing, phase) {
     this.cx = cx;
     this.cy = cy;
-    this.facing = facing;
-    this.fibers = [];
+    this.facing = facing;   // 1 izquierda mirando al centro, -1 derecha mirando al centro
+    this.phase = phase;
 
-    this.palette = {
-      head: [
-        [255, 70, 145],
-        [255, 115, 70],
-        [210, 40, 125]
-      ],
-      chest: [
-        [95, 225, 240],
-        [80, 255, 180],
+    this.scale = min(width, height) / 900;
+    this.maskG = createGraphics(320 * this.scale, 760 * this.scale);
+    this.maskG.pixelDensity(1);
+
+    this.buildMask();
+
+    this.particles = [];
+    this.createParticles();
+  }
+
+  buildMask() {
+    const g = this.maskG;
+    g.clear();
+    g.noStroke();
+    g.fill(255);
+
+    const w = g.width;
+    const h = g.height;
+    const cx = w * 0.5;
+
+    // cabeza
+    g.ellipse(cx, h * 0.12, w * 0.20, h * 0.11);
+
+    // cuello
+    g.ellipse(cx, h * 0.20, w * 0.08, h * 0.05);
+
+    // pecho / torso superior
+    g.ellipse(cx, h * 0.31, w * 0.42, h * 0.16);
+
+    // abdomen
+    g.ellipse(cx, h * 0.45, w * 0.34, h * 0.20);
+
+    // pelvis
+    g.ellipse(cx, h * 0.58, w * 0.26, h * 0.10);
+
+    // brazo externo
+    g.push();
+    g.translate(cx - this.facing * w * 0.22, h * 0.38);
+    g.rotate(radians(-7 * this.facing));
+    g.ellipse(0, 0, w * 0.12, h * 0.34);
+    g.pop();
+
+    // brazo interno
+    g.push();
+    g.translate(cx + this.facing * w * 0.16, h * 0.37);
+    g.rotate(radians(10 * this.facing));
+    g.ellipse(0, 0, w * 0.09, h * 0.26);
+    g.pop();
+
+    // piernas
+    g.push();
+    g.translate(cx - w * 0.055, h * 0.80);
+    g.rotate(radians(-2));
+    g.ellipse(0, 0, w * 0.10, h * 0.32);
+    g.pop();
+
+    g.push();
+    g.translate(cx + w * 0.055, h * 0.80);
+    g.rotate(radians(2));
+    g.ellipse(0, 0, w * 0.10, h * 0.32);
+    g.pop();
+
+    // fusionar un poco con shapes intermedias
+    g.ellipse(cx, h * 0.67, w * 0.18, h * 0.12);
+  }
+
+  motion() {
+    return {
+      swayX: sin(frameCount * 0.010 + this.phase) * 4.5,
+      swayY: cos(frameCount * 0.014 + this.phase) * 1.6,
+      breath: sin(frameCount * 0.028 + this.phase),
+      pulse: 1 + sin(frameCount * 0.060 + this.phase) * 0.13
+    };
+  }
+
+  localToWorld(lx, ly) {
+    const m = this.motion();
+    return {
+      x: this.cx + m.swayX + lx,
+      y: this.cy + m.swayY + ly
+    };
+  }
+
+  worldHeart() {
+    const m = this.motion();
+    return {
+      x: this.cx + m.swayX + this.facing * 14 * this.scale + this.facing * 3 * (m.pulse - 1),
+      y: this.cy + m.swayY - 142 * this.scale - 2 * (m.pulse - 1)
+    };
+  }
+
+  worldHead() {
+    const m = this.motion();
+    return {
+      x: this.cx + m.swayX,
+      y: this.cy + m.swayY - 265 * this.scale
+    };
+  }
+
+  createParticles() {
+    this.particles = [];
+
+    const w = this.maskG.width;
+    const h = this.maskG.height;
+    const cx = w * 0.5;
+    const cy = h * 0.48;
+
+    let attempts = 0;
+    while (this.particles.length < BODY_PARTICLES && attempts < BODY_PARTICLES * 30) {
+      attempts++;
+
+      const px = random(w);
+      const py = random(h);
+
+      const a = this.maskG.get(floor(px), floor(py))[3];
+      if (a < 10) continue;
+
+      const lx = px - cx;
+      const ly = py - cy;
+
+      const col = this.colorForLocal(lx, ly);
+
+      this.particles.push(new BodyFiber(this, lx, ly, col, random(1000)));
+    }
+  }
+
+  colorForLocal(lx, ly) {
+    // mapeo vertical por zonas internas
+    if (ly < -185 * this.scale) {
+      return random([
+        [255, 75, 150],
+        [255, 110, 80],
+        [220, 50, 130]
+      ]);
+    }
+
+    // corazón
+    const hx = this.facing * 14 * this.scale;
+    const hy = -142 * this.scale;
+    const dHeart = dist(lx, ly, hx, hy);
+    if (dHeart < 24 * this.scale) {
+      return random([
+        [255, 55, 95],
+        [255, 110, 145],
+        [255, 180, 190]
+      ]);
+    }
+
+    // pecho
+    if (ly < -70 * this.scale) {
+      return random([
+        [95, 220, 245],
+        [85, 255, 185],
         [145, 210, 255]
-      ],
-      heart: [
-        [255, 45, 85],
-        [255, 90, 125],
-        [255, 160, 170]
-      ],
-      abdomen: [
-        [185, 70, 255],
-        [255, 130, 60],
-        [160, 80, 230]
-      ],
-      legs: [
-        [255, 220, 70],
-        [235, 245, 255],
-        [100, 180, 255]
-      ],
-      arms: [
-        [95, 205, 255],
-        [100, 255, 200],
-        [170, 210, 255]
-      ]
-    };
-
-    this.regions = this.createRegions();
-    this.generateFibers();
-  }
-
-  createRegions() {
-    const s = min(width, height) / 900 * BODY_SCALE;
-
-    return [
-      // cabeza
-      {
-        name: "head",
-        x: 0,
-        y: -260 * s,
-        rx: 45 * s,
-        ry: 58 * s,
-        rot: 0,
-        count: 620,
-        type: "head",
-        glow: 1.15
-      },
-
-      // cuello
-      {
-        name: "neck",
-        x: 0,
-        y: -195 * s,
-        rx: 18 * s,
-        ry: 30 * s,
-        rot: 0,
-        count: 180,
-        type: "head",
-        glow: 0.8
-      },
-
-      // pecho ancho pero difuso
-      {
-        name: "chest",
-        x: 0,
-        y: -115 * s,
-        rx: 82 * s,
-        ry: 64 * s,
-        rot: 0,
-        count: 820,
-        type: "chest",
-        glow: 1.0
-      },
-
-      // corazón, levemente hacia el otro cuerpo
-      {
-        name: "heart",
-        x: this.facing * 24 * s,
-        y: -118 * s,
-        rx: 24 * s,
-        ry: 24 * s,
-        rot: 0,
-        count: 430,
-        type: "heart",
-        glow: 1.6
-      },
-
-      // abdomen
-      {
-        name: "abdomen",
-        x: 0,
-        y: -20 * s,
-        rx: 66 * s,
-        ry: 82 * s,
-        rot: 0,
-        count: 760,
-        type: "abdomen",
-        glow: 0.9
-      },
-
-      // pelvis
-      {
-        name: "pelvis",
-        x: 0,
-        y: 85 * s,
-        rx: 58 * s,
-        ry: 48 * s,
-        rot: 0,
-        count: 420,
-        type: "abdomen",
-        glow: 0.8
-      },
-
-      // brazo externo, más largo
-      {
-        name: "outerArm",
-        x: -this.facing * 95 * s,
-        y: -42 * s,
-        rx: 26 * s,
-        ry: 145 * s,
-        rot: radians(-8 * this.facing),
-        count: 620,
-        type: "arms",
-        glow: 0.75
-      },
-
-      // brazo hacia la distancia, más sutil
-      {
-        name: "innerArm",
-        x: this.facing * 94 * s,
-        y: -55 * s,
-        rx: 22 * s,
-        ry: 135 * s,
-        rot: radians(10 * this.facing),
-        count: 500,
-        type: "arms",
-        glow: 0.72
-      },
-
-      // pierna izquierda
-      {
-        name: "legA",
-        x: -28 * s,
-        y: 230 * s,
-        rx: 25 * s,
-        ry: 155 * s,
-        rot: radians(2),
-        count: 700,
-        type: "legs",
-        glow: 0.78
-      },
-
-      // pierna derecha
-      {
-        name: "legB",
-        x: 28 * s,
-        y: 230 * s,
-        rx: 25 * s,
-        ry: 155 * s,
-        rot: radians(-2),
-        count: 700,
-        type: "legs",
-        glow: 0.78
-      }
-    ];
-  }
-
-  generateFibers() {
-    this.fibers = [];
-
-    for (const region of this.regions) {
-      for (let i = 0; i < region.count; i++) {
-        const p = sampleInEllipse(region.rx, region.ry);
-
-        const fuzz = random() < 0.22 ? random(1.05, 1.35) : random(0.65, 1.05);
-
-        const localX = p.x * fuzz;
-        const localY = p.y * fuzz;
-
-        const rotated = rotatePoint(localX, localY, region.rot);
-
-        const col = random(this.palette[region.type]);
-
-        this.fibers.push({
-          region,
-          lx: rotated.x,
-          ly: rotated.y,
-          seed: random(10000),
-          col,
-          len: random(2.2, 8.5),
-          weight: random(0.45, 1.2),
-          alpha: random(34, 92) * region.glow,
-          drift: random(0.5, 2.2),
-          wobble: random(0.8, 3.8)
-        });
-      }
+      ]);
     }
-  }
 
-  draw() {
-    const breathe = sin(frameCount * 0.026 + this.cx * 0.001) * 1.0;
-    const swayX = sin(frameCount * 0.011 + this.cx * 0.002) * 3.5;
-    const swayY = cos(frameCount * 0.014 + this.cx * 0.002) * 2.0;
-
-    for (const f of this.fibers) {
-      const r = f.region;
-
-      let baseX = this.cx + swayX + r.x + f.lx * (1 + breathe * 0.006);
-      let baseY = this.cy + swayY + r.y + f.ly * (1 + breathe * 0.008);
-
-      const n = noise(
-        baseX * 0.006,
-        baseY * 0.006,
-        frameCount * 0.012 + f.seed
-      );
-
-      const angle =
-        n * TWO_PI * 2.6 +
-        sin(frameCount * 0.018 + f.seed) * 0.8;
-
-      const vibX = cos(angle) * f.wobble;
-      const vibY = sin(angle) * f.wobble;
-
-      const x1 = baseX + vibX;
-      const y1 = baseY + vibY;
-
-      const x2 = x1 + cos(angle) * f.len;
-      const y2 = y1 + sin(angle) * f.len;
-
-      const flicker = 0.74 + noise(f.seed, frameCount * 0.035) * 0.45;
-
-      stroke(
-        f.col[0],
-        f.col[1],
-        f.col[2],
-        constrain(f.alpha * flicker, 0, 135)
-      );
-
-      strokeWeight(f.weight);
-      line(x1, y1, x2, y2);
+    // abdomen
+    if (ly < 95 * this.scale) {
+      return random([
+        [180, 85, 250],
+        [155, 70, 220],
+        [255, 135, 70]
+      ]);
     }
+
+    // piernas / zona baja
+    return random([
+      [245, 245, 255],
+      [255, 220, 80],
+      [105, 175, 255]
+    ]);
   }
 
-  heartPoint() {
-    const s = min(width, height) / 900 * BODY_SCALE;
-    return {
-      x: this.cx + this.facing * 24 * s,
-      y: this.cy - 118 * s
-    };
+  update() {
+    for (const p of this.particles) p.update();
   }
 
-  headPoint() {
-    const s = min(width, height) / 900 * BODY_SCALE;
-    return {
-      x: this.cx,
-      y: this.cy - 260 * s
-    };
+  display() {
+    for (const p of this.particles) p.display();
   }
 }
 
-/* =========================
-   DISTANCIA / INTERFERENCIA
-========================= */
+/* =========================================================
+   BODY FIBER
+========================================================= */
 
-class DistanceSignal {
-  constructor() {
-    this.seed = random(10000);
-    this.t = random();
-    this.kind = random() < 0.62 ? "heart" : "head";
+class BodyFiber {
+  constructor(body, ax, ay, col, seed) {
+    this.body = body;
+    this.ax = ax;
+    this.ay = ay;
+    this.seed = seed;
 
-    this.col =
-      this.kind === "heart"
-        ? random([
-            [255, 40, 100],
-            [255, 80, 150],
-            [190, 80, 255]
-          ])
-        : random([
-            [115, 80, 190],
-            [80, 180, 255],
-            [220, 90, 255]
-          ]);
+    this.r = constrain(col[0] + random(-16, 16), 0, 255);
+    this.g = constrain(col[1] + random(-16, 16), 0, 255);
+    this.b = constrain(col[2] + random(-16, 16), 0, 255);
 
-    this.alpha = this.kind === "heart" ? random(18, 50) : random(7, 24);
-    this.weight = random(0.35, 0.95);
-    this.len = random(3, 12);
+    this.alpha = random(7, 26);
+    this.weight = random(0.22, 0.90);
+    this.pull = random(0.016, 0.040);
+    this.speed = random(0.18, 0.70);
+    this.maxDist = random(18, 42) * this.body.scale;
+
+    const start = this.anchorWorld();
+    this.x = start.x + random(-2, 2);
+    this.y = start.y + random(-2, 2);
+    this.vx = 0;
+    this.vy = 0;
+
+    this.history = [];
+    for (let i = 0; i < 6; i++) {
+      this.history.push({ x: this.x, y: this.y });
+    }
   }
 
-  draw() {
-    const a =
-      this.kind === "heart" ? leftBody.heartPoint() : leftBody.headPoint();
+  anchorWorld() {
+    const m = this.body.motion();
 
-    const b =
-      this.kind === "heart" ? rightBody.heartPoint() : rightBody.headPoint();
+    let lx = this.ax * (1 + m.breath * 0.018);
+    let ly = this.ay * (1 + m.breath * 0.028);
 
-    const midX = lerp(a.x, b.x, this.t);
-    const midY = lerp(a.y, b.y, this.t);
+    // pulso más evidente cerca del corazón
+    const heartLX = this.body.facing * 14 * this.body.scale;
+    const heartLY = -142 * this.body.scale;
+    const dHeart = dist(this.ax, this.ay, heartLX, heartLY);
 
-    const wave =
-      sin(this.t * PI * 2 + frameCount * 0.018 + this.seed) *
-      (this.kind === "heart" ? 28 : 48);
+    if (dHeart < 46 * this.body.scale) {
+      const pulseInfluence = map(dHeart, 0, 46 * this.body.scale, 1.18, 1.0);
+      lx *= 1 + (m.pulse - 1) * pulseInfluence;
+      ly *= 1 + (m.pulse - 1) * pulseInfluence;
+    }
 
-    const vertical =
-      this.kind === "heart"
-        ? sin(this.t * PI) * 20
-        : -70 + sin(this.t * PI) * 18;
+    return {
+      x: this.body.cx + m.swayX + lx,
+      y: this.body.cy + m.swayY + ly
+    };
+  }
 
-    const x =
-      midX +
-      (noise(this.seed, frameCount * 0.01) - 0.5) * 22;
+  update() {
+    const t = this.anchorWorld();
 
-    const y =
-      midY +
-      vertical +
-      wave +
-      (noise(this.seed + 44, frameCount * 0.01) - 0.5) * 18;
-
-    const angle =
-      noise(x * 0.004, y * 0.004, frameCount * 0.01 + this.seed) *
+    const ang =
+      noise(this.x * 0.003, this.y * 0.003, frameCount * 0.006 + this.seed) *
       TWO_PI *
-      2;
+      2.3;
 
+    const flowX = cos(ang) * this.speed * 0.35;
+    const flowY = sin(ang) * this.speed * 0.35;
+
+    const jitterX = (noise(this.seed + 10, frameCount * 0.020) - 0.5) * 0.8;
+    const jitterY = (noise(this.seed + 30, frameCount * 0.020) - 0.5) * 0.8;
+
+    const attractX = (t.x - this.x) * this.pull;
+    const attractY = (t.y - this.y) * this.pull;
+
+    this.vx = this.vx * 0.82 + flowX + attractX + jitterX;
+    this.vy = this.vy * 0.82 + flowY + attractY + jitterY;
+
+    this.x += this.vx;
+    this.y += this.vy;
+
+    const d = dist(this.x, this.y, t.x, t.y);
+    if (d > this.maxDist) {
+      this.x = lerp(this.x, t.x, 0.35);
+      this.y = lerp(this.y, t.y, 0.35);
+      this.vx *= 0.5;
+      this.vy *= 0.5;
+    }
+
+    this.history.push({ x: this.x, y: this.y });
+    if (this.history.length > 7) this.history.shift();
+  }
+
+  display() {
+    const flick = 0.78 + noise(this.seed, frameCount * 0.03) * 0.40;
+
+    stroke(this.r, this.g, this.b, this.alpha * flick);
+    strokeWeight(this.weight);
+
+    beginShape();
+    curveVertex(this.history[0].x, this.history[0].y);
+    for (const p of this.history) curveVertex(p.x, p.y);
+    const last = this.history[this.history.length - 1];
+    curveVertex(last.x, last.y);
+    endShape();
+  }
+}
+
+/* =========================================================
+   BRIDGE FIBERS
+========================================================= */
+
+class BridgeFiber {
+  constructor(t, seed, kind) {
+    this.t = t;
+    this.seed = seed;
+    this.kind = kind;
+
+    this.col = kind === "heart"
+      ? random([
+          [255, 45, 100],
+          [255, 95, 155],
+          [210, 90, 255]
+        ])
+      : random([
+          [120, 80, 210],
+          [95, 155, 255],
+          [180, 95, 255]
+        ]);
+
+    this.alpha = kind === "heart" ? random(5, 15) : random(2, 8);
+    this.weight = kind === "heart" ? random(0.20, 0.60) : random(0.16, 0.45);
+    this.pull = random(0.025, 0.050);
+
+    const p = this.target();
+    this.x = p.x;
+    this.y = p.y;
+    this.vx = 0;
+    this.vy = 0;
+
+    this.history = [];
+    for (let i = 0; i < 6; i++) this.history.push({ x: this.x, y: this.y });
+  }
+
+  target() {
+    const a = this.kind === "heart" ? leftBody.worldHeart() : leftBody.worldHead();
+    const b = this.kind === "heart" ? rightBody.worldHeart() : rightBody.worldHead();
+
+    const bow = this.kind === "heart" ? 26 : 60;
+    const lift = this.kind === "heart" ? 10 : -70;
+
+    const c1 = {
+      x: lerp(a.x, b.x, 0.32),
+      y: lerp(a.y, b.y, 0.32) + lift + sin(frameCount * 0.012 + this.seed) * bow
+    };
+
+    const c2 = {
+      x: lerp(a.x, b.x, 0.68),
+      y: lerp(a.y, b.y, 0.68) + lift + cos(frameCount * 0.012 + this.seed) * bow
+    };
+
+    return {
+      x: bezierPoint(a.x, c1.x, c2.x, b.x, this.t) + (noise(this.seed + 10, frameCount * 0.01) - 0.5) * 18,
+      y: bezierPoint(a.y, c1.y, c2.y, b.y, this.t) + (noise(this.seed + 20, frameCount * 0.01) - 0.5) * 18
+    };
+  }
+
+  update() {
+    const t = this.target();
+
+    const ang =
+      noise(this.x * 0.003, this.y * 0.003, frameCount * 0.007 + this.seed) *
+      TWO_PI *
+      2.0;
+
+    const flowX = cos(ang) * 0.22;
+    const flowY = sin(ang) * 0.22;
+
+    this.vx = this.vx * 0.80 + flowX + (t.x - this.x) * this.pull;
+    this.vy = this.vy * 0.80 + flowY + (t.y - this.y) * this.pull;
+
+    this.x += this.vx;
+    this.y += this.vy;
+
+    this.history.push({ x: this.x, y: this.y });
+    if (this.history.length > 6) this.history.shift();
+  }
+
+  display() {
     stroke(this.col[0], this.col[1], this.col[2], this.alpha);
     strokeWeight(this.weight);
 
-    line(
-      x,
-      y,
-      x + cos(angle) * this.len,
-      y + sin(angle) * this.len
-    );
+    beginShape();
+    curveVertex(this.history[0].x, this.history[0].y);
+    for (const p of this.history) curveVertex(p.x, p.y);
+    const last = this.history[this.history.length - 1];
+    curveVertex(last.x, last.y);
+    endShape();
   }
 }
 
-/* =========================
-   HELPERS
-========================= */
+/* =========================================================
+   CENTRAL INTERFERENCE
+========================================================= */
 
-function sampleInEllipse(rx, ry) {
-  const a = random(TWO_PI);
+class FieldFiber {
+  constructor(seed) {
+    this.seed = seed;
 
-  // centro denso, borde peludo
-  let r = sqrt(random());
+    const a = random(TWO_PI);
+    const r = sqrt(random());
+    this.ax = width * 0.5 + cos(a) * r * min(width * 0.09, 110);
+    this.ay = height * 0.53 + sin(a) * r * min(height * 0.13, 120);
 
-  if (random() < 0.22) {
-    r = random(0.85, 1.18);
+    this.x = this.ax;
+    this.y = this.ay;
+    this.vx = 0;
+    this.vy = 0;
+
+    this.col = random([
+      [255, 40, 120],
+      [185, 95, 255],
+      [120, 185, 255],
+      [255, 130, 180]
+    ]);
+
+    this.alpha = random(2, 10);
+    this.weight = random(0.14, 0.42);
+    this.pull = random(0.010, 0.022);
+
+    this.history = [];
+    for (let i = 0; i < 5; i++) this.history.push({ x: this.x, y: this.y });
   }
 
-  return {
-    x: cos(a) * r * rx,
-    y: sin(a) * r * ry
-  };
+  target() {
+    return {
+      x: this.ax + sin(frameCount * 0.012 + this.seed) * 8,
+      y: this.ay + cos(frameCount * 0.013 + this.seed) * 8
+    };
+  }
+
+  update() {
+    const t = this.target();
+
+    const ang =
+      noise(this.x * 0.0033, this.y * 0.0033, frameCount * 0.010 + this.seed) *
+      TWO_PI *
+      3.0;
+
+    const flowX = cos(ang) * 0.25;
+    const flowY = sin(ang) * 0.25;
+
+    this.vx = this.vx * 0.82 + flowX + (t.x - this.x) * this.pull;
+    this.vy = this.vy * 0.82 + flowY + (t.y - this.y) * this.pull;
+
+    this.x += this.vx;
+    this.y += this.vy;
+
+    this.history.push({ x: this.x, y: this.y });
+    if (this.history.length > 5) this.history.shift();
+  }
+
+  display() {
+    stroke(this.col[0], this.col[1], this.col[2], this.alpha);
+    strokeWeight(this.weight);
+
+    beginShape();
+    curveVertex(this.history[0].x, this.history[0].y);
+    for (const p of this.history) curveVertex(p.x, p.y);
+    const last = this.history[this.history.length - 1];
+    curveVertex(last.x, last.y);
+    endShape();
+  }
 }
 
-function rotatePoint(x, y, a) {
-  return {
-    x: x * cos(a) - y * sin(a),
-    y: x * sin(a) + y * cos(a)
-  };
-}
+/* =========================================================
+   UI
+========================================================= */
 
-function drawSoftVignette() {
-  const cx = width / 2;
-  const cy = height / 2;
-  const rMax = max(width, height) * 0.72;
+function drawVignette() {
+  const cx = width * 0.5;
+  const cy = height * 0.5;
+  const inner = min(width, height) * 0.18;
+  const outer = max(width, height) * 0.82;
 
-  const grad = drawingContext.createRadialGradient(
-    cx,
-    cy,
-    0,
-    cx,
-    cy,
-    rMax
-  );
-
-  grad.addColorStop(0.0, "rgba(0,0,0,0)");
-  grad.addColorStop(0.62, "rgba(0,0,0,0)");
-  grad.addColorStop(0.84, "rgba(0,0,0,0.35)");
-  grad.addColorStop(1.0, "rgba(0,0,0,0.92)");
+  const grad = drawingContext.createRadialGradient(cx, cy, inner, cx, cy, outer);
+  grad.addColorStop(0.00, "rgba(0,0,0,0)");
+  grad.addColorStop(0.62, "rgba(0,0,0,0.10)");
+  grad.addColorStop(0.82, "rgba(0,0,0,0.45)");
+  grad.addColorStop(1.00, "rgba(0,0,0,0.88)");
 
   drawingContext.fillStyle = grad;
   drawingContext.fillRect(0, 0, width, height);
@@ -461,11 +567,10 @@ function drawTitle() {
   push();
   drawingContext.globalCompositeOperation = "source-over";
   noStroke();
-  fill(210, 205, 195, 78);
+  fill(220, 215, 205, 58);
   textAlign(CENTER, CENTER);
-  textSize(13);
   textFont("monospace");
-  textStyle(NORMAL);
-  text("A N A T O M Í A   D E   L A   D I S T A N C I A", width / 2, height - 46);
+  textSize(13);
+  text("A N A T O M Í A   D E   L A   D I S T A N C I A", width * 0.5, height - 40);
   pop();
 }
