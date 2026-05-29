@@ -1,16 +1,16 @@
 /*
- * Anatomía de la Distancia — versión 6
- * Densidad y color tomados de una imagen de referencia.
+ * Anatomía de la Distancia — versión 7
+ * Dos cuerpos de pie, hechos de fibras vivas, fieles al referente.
  *
  *  - preload() carga apps/fibras/assets/cuerpo-ref.png
- *  - Cada FiberBody dibuja la imagen en un p5.Graphics oculto (mask),
- *    el derecho espejado horizontalmente.
- *  - Las partículas se muestrean por rejection sampling ponderado por
- *    el BRILLO del píxel (ignora el fondo negro).
- *  - El COLOR de cada fibra se hereda del píxel donde nació →
- *    la composición cromática del referente se preserva.
- *  - Pulso cardíaco (lub-dub) modula intensidad, escala del cuerpo,
- *    brillo del foco cardíaco y la amplitud del oscilador.
+ *  - El referente es horizontal (cabeza a la izquierda). En buildMask()
+ *    se rota 90° CW para que el cuerpo quede VERTICAL, de pie.
+ *  - El cuerpo derecho se espeja horizontalmente respecto al izquierdo.
+ *  - El muestreo usa rejection sampling por brillo y hereda color del
+ *    píxel del referente → riqueza cromática preservada.
+ *  - El pulso (lub-dub) afecta a TODO el cuerpo: alpha, grosor, brillo,
+ *    saturación y una expansión muy leve. El corazón es solo una zona
+ *    sutil de mayor densidad, sin nube radial dominante.
  *  - Sonido: sub-bass + armónico con LowPass, activado por #soundToggle.
  */
 
@@ -20,17 +20,20 @@ let centerField = [];
 
 let bodyRefImg;
 
-// configurable: posición relativa de cabeza/corazón dentro de la imagen
-// la imagen original tiene cabeza rosa abajo-izquierda
-const HEAD_REL  = { x: 0.13, y: 0.52 };
-const HEART_REL = { x: 0.26, y: 0.43 };
+// Anclas relativas DENTRO de la imagen YA ROTADA 90° CW
+// (cuerpo de pie: cabeza arriba, pies abajo)
+// derivadas del referente horizontal donde:
+//   cabeza estaba en (0.13, 0.52) → tras rotación CW: (1-0.52, 0.13) = (0.48, 0.13)
+//   corazón estaba en (0.26, 0.43) → tras rotación CW: (1-0.43, 0.26) = (0.57, 0.26)
+const HEAD_REL  = { x: 0.48, y: 0.13 };
+const HEART_REL = { x: 0.57, y: 0.26 };
 
 const QUALITY = 1.0;
-const BG_FADE = 30;
-const FIBERS_PER_BODY = 4200;
-const BRIDGE_HEART = 220;
-const BRIDGE_HEAD = 100;
-const FIELD_COUNT = 520;
+const BG_FADE = 28;
+const FIBERS_PER_BODY = 5200;
+const BRIDGE_HEART = 70;
+const BRIDGE_HEAD = 36;
+const FIELD_COUNT = 140;
 
 let globalPulse = 0;
 
@@ -64,9 +67,9 @@ function buildScene() {
   bridges = [];
   centerField = [];
 
-  // dos cuerpos enfrentados, espejados
-  bodies.push(new FiberBody(width * 0.27, height * 0.50, false, 0.0));
-  bodies.push(new FiberBody(width * 0.73, height * 0.50, true,  PI * 0.7));
+  // dos cuerpos de pie, separados con aire entre ellos, espejados
+  bodies.push(new FiberBody(width * 0.28, height * 0.52, false, 0.0));
+  bodies.push(new FiberBody(width * 0.72, height * 0.52, true,  PI * 0.7));
 
   for (let i = 0; i < floor(BRIDGE_HEART * QUALITY); i++) {
     bridges.push(new BridgeStrand("heart", random(), random(1000)));
@@ -96,7 +99,7 @@ function draw() {
 
   drawingContext.globalCompositeOperation = prev;
 
-  drawHeartFlash();
+  drawHeartFocus();
   drawVignette();
   drawTitle();
 }
@@ -179,15 +182,17 @@ class FiberBody {
     this.mirror = mirror;
     this.phase = phase;
 
-    // aspect ratio = aspect de la imagen, sin deformar
-    const aspect = bodyRefImg.width / bodyRefImg.height;
+    // El referente es horizontal (W > H). Al rotarlo 90° CW para ponerlo
+    // de pie, su nuevo aspect (W/H) pasa a ser H_ref / W_ref.
+    const aspect = bodyRefImg.height / bodyRefImg.width;
 
-    let w = min(width * 0.48, 820);
-    let h = w / aspect;
-    const maxH = height * 0.82;
-    if (h > maxH) {
-      h = maxH;
-      w = h * aspect;
+    // priorizamos altura: queremos cuerpos verticales bien legibles
+    let h = min(height * 0.86, 900);
+    let w = h * aspect;
+    const maxW = width * 0.40;
+    if (w > maxW) {
+      w = maxW;
+      h = w / aspect;
     }
 
     this.bodyW = w;
@@ -202,20 +207,26 @@ class FiberBody {
     g.pixelDensity(1);
     g.clear();
 
+    // Rotación 90° CW del referente para que el cuerpo quede de pie:
+    //   referente original: cabeza a la izquierda → tras CW, cabeza arriba.
+    // En el frame rotado, el ancho de la imagen original (W_ref) extiende
+    // VERTICALMENTE en g (→ g.height), y la altura (H_ref) extiende
+    // HORIZONTALMENTE (→ g.width). Por eso al dibujar pasamos (g.height, g.width).
+    g.push();
+    g.imageMode(CENTER);
+    g.translate(g.width / 2, g.height / 2);
+    g.rotate(HALF_PI); // CW en coords con y hacia abajo
     if (this.mirror) {
-      g.push();
-      g.translate(g.width, 0);
-      g.scale(-1, 1);
-      g.image(bodyRefImg, 0, 0, g.width, g.height);
-      g.pop();
-    } else {
-      g.image(bodyRefImg, 0, 0, g.width, g.height);
+      // tras la rotación, local-y mapea a global -x → flip local-y = flip global-x
+      g.scale(1, -1);
     }
+    g.image(bodyRefImg, 0, 0, g.height, g.width);
+    g.pop();
 
     g.loadPixels();
     this.mask = g;
 
-    // anclas internas, espejadas si corresponde
+    // Anclas en el frame rotado, espejadas si corresponde
     const hx  = this.mirror ? 1 - HEAD_REL.x  : HEAD_REL.x;
     const hrx = this.mirror ? 1 - HEART_REL.x : HEART_REL.x;
     this.localHead  = { x: hx  * this.bodyW, y: HEAD_REL.y  * this.bodyH };
@@ -252,21 +263,26 @@ class FiberBody {
   motion() {
     const pulse = globalPulse;
     return {
-      swayX: sin(frameCount * 0.0095 + this.phase) * 5.5,
-      swayY: cos(frameCount * 0.0125 + this.phase) * 2.2,
-      breath: sin(frameCount * 0.028 + this.phase),
-      pulseScale: 1 + pulse * 0.045,
-      tilt: sin(frameCount * 0.008 + this.phase) * 0.030,
+      // sway sutil, vertical predomina (respiración)
+      swayX: sin(frameCount * 0.0080 + this.phase) * 3.0,
+      swayY: cos(frameCount * 0.0110 + this.phase) * 1.6,
+      breath: sin(frameCount * 0.026 + this.phase),
+      // expansión muy leve del cuerpo entero con cada latido
+      pulseScale: 1 + pulse * 0.038,
+      // tilt mínimo, para que la figura siga claramente de pie
+      tilt: sin(frameCount * 0.0065 + this.phase) * 0.012,
     };
   }
 
   toWorld(lx, ly) {
     const m = this.motion();
-    const breath = 1 + m.breath * 0.022;
+    // respiración: el cuerpo se ensancha levemente
+    const breathX = 1 + m.breath * 0.018;
+    const breathY = 1 + m.breath * 0.024;
     const ps = m.pulseScale;
 
-    const ox = (lx - this.bodyW * 0.5) * breath * ps;
-    const oy = (ly - this.bodyH * 0.5) * (1 + m.breath * 0.028) * ps;
+    const ox = (lx - this.bodyW * 0.5) * breathX * ps;
+    const oy = (ly - this.bodyH * 0.5) * breathY * ps;
 
     const a = m.tilt;
     const rx = ox * cos(a) - oy * sin(a);
@@ -297,24 +313,26 @@ class Fiber {
     this.seed = random(10000);
 
     // color del píxel del referente, con leve boost de saturación / variación
-    const boost = 1.25;
-    this.r = constrain(pr * boost + random(-14, 14), 0, 255);
-    this.g = constrain(pg * boost + random(-14, 14), 0, 255);
-    this.b = constrain(pb * boost + random(-14, 14), 0, 255);
+    const boost = 1.22;
+    this.r = constrain(pr * boost + random(-12, 12), 0, 255);
+    this.g = constrain(pg * boost + random(-12, 12), 0, 255);
+    this.b = constrain(pb * boost + random(-12, 12), 0, 255);
 
-    // foco cardíaco
+    // Foco cardíaco MUY sutil: zona pequeña, boost mínimo. No domina.
     const dHeart = dist(lx, ly, body.localHeart.x, body.localHeart.y);
-    const heartR = min(body.bodyW, body.bodyH) * 0.10;
+    const heartR = min(body.bodyW, body.bodyH) * 0.07;
     this.isHeart = dHeart < heartR;
-    this.alphaBoost = this.isHeart ? 1.35 + (1 - dHeart / heartR) * 0.8 : 1.0;
+    this.heartFalloff = this.isHeart ? (1 - dHeart / heartR) : 0;
+    // Antes: hasta 2.15x. Ahora: tope ~1.18x → no genera mancha.
+    this.alphaBoost = 1.0 + this.heartFalloff * 0.18;
 
-    // física
-    this.speed = random(0.28, 1.05);
-    this.pull = random(0.022, 0.050);
-    this.wander = random(0.45, 1.50);
-    this.weight = random(0.28, 1.05);
-    this.alpha = random(11, 34) * map(density, 30, 255, 0.55, 1.0);
-    this.maxDist = random(55, 130);
+    // física — más suave y menos confeti
+    this.speed = random(0.22, 0.85);
+    this.pull = random(0.022, 0.046);
+    this.wander = random(0.25, 0.85);
+    this.weight = random(0.26, 0.95);
+    this.alpha = random(10, 30) * map(density, 30, 255, 0.55, 1.0);
+    this.maxDist = random(50, 115);
 
     const w = body.toWorld(lx, ly);
     this.x = w.x + random(-2, 2);
@@ -322,9 +340,10 @@ class Fiber {
     this.vx = 0;
     this.vy = 0;
 
+    // historial más largo → trazo se lee como hebra, no como confeti
     this.history = [];
-    const hc = floor(random(5, 8));
-    for (let i = 0; i < hc; i++) {
+    this.maxHistory = floor(random(9, 14));
+    for (let i = 0; i < this.maxHistory; i++) {
       this.history.push({ x: this.x, y: this.y });
     }
   }
@@ -333,17 +352,17 @@ class Fiber {
     const t = this.body.toWorld(this.lx, this.ly);
 
     const ang =
-      noise(this.x * 0.0030, this.y * 0.0030, frameCount * 0.0060 + this.seed) *
-      TWO_PI * 2.4;
+      noise(this.x * 0.0028, this.y * 0.0028, frameCount * 0.0050 + this.seed) *
+      TWO_PI * 2.2;
 
-    const flowX = cos(ang) * this.speed * 0.30;
-    const flowY = sin(ang) * this.speed * 0.30;
+    const flowX = cos(ang) * this.speed * 0.28;
+    const flowY = sin(ang) * this.speed * 0.28;
 
-    const jitterX = (noise(this.seed + 10, frameCount * 0.022) - 0.5) * this.wander;
-    const jitterY = (noise(this.seed + 30, frameCount * 0.022) - 0.5) * this.wander;
+    const jitterX = (noise(this.seed + 10, frameCount * 0.020) - 0.5) * this.wander;
+    const jitterY = (noise(this.seed + 30, frameCount * 0.020) - 0.5) * this.wander;
 
-    this.vx = this.vx * 0.84 + flowX + (t.x - this.x) * this.pull + jitterX;
-    this.vy = this.vy * 0.84 + flowY + (t.y - this.y) * this.pull + jitterY;
+    this.vx = this.vx * 0.86 + flowX + (t.x - this.x) * this.pull + jitterX;
+    this.vy = this.vy * 0.86 + flowY + (t.y - this.y) * this.pull + jitterY;
 
     this.x += this.vx;
     this.y += this.vy;
@@ -357,20 +376,30 @@ class Fiber {
     }
 
     this.history.push({ x: this.x, y: this.y });
-    if (this.history.length > 8) this.history.shift();
+    if (this.history.length > this.maxHistory) this.history.shift();
   }
 
   display() {
     if (this.history.length < 4) return;
-    const flicker = 0.85 + noise(this.seed, frameCount * 0.028) * 0.30;
+
+    const flicker = 0.82 + noise(this.seed, frameCount * 0.026) * 0.32;
+    // intensidad GLOBAL: todo el cuerpo se enciende con el latido
     const intensity = fiberIntensity();
-    const heartBoost = this.isHeart ? 1 + globalPulse * 0.9 : 1;
+    // saturación: durante el peak, los colores se sienten más vivos
+    const satBoost = 1 + globalPulse * 0.22;
+    // empuje sutil de corazón, no dominante
+    const heartBoost = 1 + this.heartFalloff * globalPulse * 0.35;
+
+    const r = constrain(this.r * satBoost, 0, 255);
+    const g = constrain(this.g * satBoost, 0, 255);
+    const b = constrain(this.b * satBoost, 0, 255);
 
     stroke(
-      this.r, this.g, this.b,
+      r, g, b,
       this.alpha * this.alphaBoost * flicker * intensity * heartBoost
     );
-    strokeWeight(this.weight * (this.isHeart ? 1 + globalPulse * 0.35 : 1));
+    // grosor: respira con TODO el cuerpo; corazón aporta apenas un poco más
+    strokeWeight(this.weight * (1 + globalPulse * 0.18 + this.heartFalloff * globalPulse * 0.12));
     noFill();
 
     beginShape();
@@ -396,14 +425,16 @@ class BridgeStrand {
     this.history = [];
 
     const heartish = kind === "heart";
+    // paleta variada (no solo rosa) para que las hebras sutiles
+    // entre cuerpos respeten la riqueza cromática
     this.col = heartish
-      ? random([[255,45,100],[255,90,160],[210,80,255]])
-      : random([[120,80,210],[90,140,255],[185,95,255]]);
+      ? random([[210,80,180],[180,90,210],[120,160,230],[230,150,90]])
+      : random([[120,140,210],[160,120,220],[200,180,140],[120,200,210]]);
 
-    this.alpha = heartish ? random(8, 24) : random(4, 12);
-    this.weight = heartish ? random(0.32, 0.95) : random(0.22, 0.62);
-    this.speed = random(0.20, 0.70);
-    this.pull = random(0.030, 0.060);
+    this.alpha = heartish ? random(3, 10) : random(2, 7);
+    this.weight = heartish ? random(0.22, 0.55) : random(0.18, 0.42);
+    this.speed = random(0.18, 0.55);
+    this.pull = random(0.028, 0.055);
 
     const p = this.target();
     this.x = p.x;
@@ -459,10 +490,11 @@ class BridgeStrand {
 
   display() {
     if (this.history.length < 4) return;
-    const flick = 0.85 + noise(this.seed, frameCount * 0.025) * 0.30;
+    const flick = 0.80 + noise(this.seed, frameCount * 0.022) * 0.30;
+    // las hebras entre cuerpos pulsan, pero sin acumular brillo
     const heartBoost = this.kind === "heart"
-      ? 1 + globalPulse * 1.1
-      : 1 + globalPulse * 0.25;
+      ? 1 + globalPulse * 0.35
+      : 1 + globalPulse * 0.15;
 
     stroke(
       this.col[0], this.col[1], this.col[2],
@@ -503,15 +535,17 @@ class FieldWhisper {
     this.history = [];
     for (let i = 0; i < 5; i++) this.history.push({ x: this.x, y: this.y });
 
+    // paleta múltiple para no uniformizar el centro a rosa
     this.col = random([
-      [255, 40, 120],
-      [185, 95, 255],
-      [120, 185, 255],
-      [255, 130, 190],
+      [200, 120, 200],
+      [150, 130, 220],
+      [120, 180, 220],
+      [220, 180, 130],
+      [200, 200, 200],
     ]);
 
-    this.alpha = random(4, 14);
-    this.weight = random(0.20, 0.58);
+    this.alpha = random(2, 7);
+    this.weight = random(0.18, 0.45);
     this.speed = random(0.25, 0.80);
     this.pull = random(0.010, 0.024);
     this.maxDist = random(55, 130);
@@ -584,22 +618,25 @@ class FieldWhisper {
 }
 
 /* =========================================================
-   HEART FLASH
+   HEART FOCUS  —  apenas un foco íntimo, NO una nube
+   Reemplaza al antiguo drawHeartFlash (la mancha rosa gigante).
 ========================================================= */
 
-function drawHeartFlash() {
-  if (globalPulse < 0.25) return;
+function drawHeartFocus() {
+  if (globalPulse < 0.45) return;
 
   drawingContext.save();
   drawingContext.globalCompositeOperation = "lighter";
 
   for (const body of bodies) {
     const h = body.heartCenter();
-    const radius = 180 + globalPulse * 120;
+    // radio en proporción al cuerpo, no a la pantalla → siempre íntimo
+    const baseR = min(body.bodyW, body.bodyH) * 0.045;
+    const radius = baseR + globalPulse * baseR * 0.6;
     const grad = drawingContext.createRadialGradient(h.x, h.y, 0, h.x, h.y, radius);
-    const a = globalPulse * 0.45;
-    grad.addColorStop(0.00, `rgba(255, 80, 110, ${a})`);
-    grad.addColorStop(0.35, `rgba(255, 55, 130, ${a * 0.55})`);
+    const a = (globalPulse - 0.45) * 0.22; // muy bajo
+    grad.addColorStop(0.00, `rgba(255, 200, 220, ${a})`);
+    grad.addColorStop(0.45, `rgba(220, 140, 200, ${a * 0.45})`);
     grad.addColorStop(1.00, "rgba(0,0,0,0)");
     drawingContext.fillStyle = grad;
     drawingContext.fillRect(h.x - radius, h.y - radius, radius * 2, radius * 2);
