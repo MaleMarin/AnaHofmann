@@ -23,6 +23,14 @@
 // ============ FLAGS DE CALIBRACIÓN ============
 const DEBUG_VISUAL          = true;   // referencia | generado lado a lado
 const SHOW_REFERENCE_OVERLAY = false; // fantasma del referente debajo
+
+// Tunables de calibración (afectan SOLO al modo debug)
+const DEBUG_FIBER_COUNT  = 15000; // cantidad de fibras del cuerpo generado
+const DEBUG_ALPHA_MULT   = 2.0;   // multiplicador global de alpha en debug
+const DEBUG_WEIGHT_MULT  = 1.35;  // multiplicador global de grosor en debug
+const DEBUG_COLOR_BOOST  = 1.30;  // boost de color del píxel heredado
+const DEBUG_COLOR_GAMMA  = 0.78;  // <1 = brighten dark pixels (más contraste útil)
+const DEBUG_DENSITY_MULT = 1.50;  // sube probabilidad de aceptar píxeles del cuerpo
 // ===============================================
 
 let bodies = [];
@@ -42,15 +50,17 @@ const HEART_REL = { x: 0.57, y: 0.26 };
 const QUALITY = 1.0;
 const BG_FADE = DEBUG_VISUAL ? 36 : 28;
 // densidad necesaria para que el cuerpo se lea como la referencia
-const FIBERS_PER_BODY = DEBUG_VISUAL ? 9000 : 5200;
+const FIBERS_PER_BODY = DEBUG_VISUAL ? DEBUG_FIBER_COUNT : 5200;
 // en debug NO queremos hebras entre cuerpos ni campo central
 const BRIDGE_HEART = DEBUG_VISUAL ? 0 : 70;
 const BRIDGE_HEAD  = DEBUG_VISUAL ? 0 : 36;
 const FIELD_COUNT  = DEBUG_VISUAL ? 0 : 140;
 
-// umbrales de muestreo (en escala 0..255 sobre brightness+saturation mezclados)
-const SAMPLE_MIN_DENSITY = 18;
-const SAMPLE_ACCEPT_GAIN = 1.20;
+// Umbrales de muestreo (en escala 0..255 sobre brightness+saturation mezclados).
+// En debug bajamos el mínimo para rescatar zonas finas (brazos, manos) y
+// subimos la ganancia para que los píxeles del cuerpo se acepten más rápido.
+const SAMPLE_MIN_DENSITY = DEBUG_VISUAL ? 11 : 18;
+const SAMPLE_ACCEPT_GAIN = DEBUG_VISUAL ? 1.20 * DEBUG_DENSITY_MULT : 1.20;
 
 let globalPulse = 0;
 
@@ -162,6 +172,8 @@ function heartbeatPulse(t) {
 }
 
 function fiberIntensity() {
+  // En debug usamos una intensidad fuerte y estable: el cuerpo debe LEERSE.
+  if (DEBUG_VISUAL) return 1.0;
   return 0.45 + globalPulse * 0.85;
 }
 
@@ -316,6 +328,17 @@ class FiberBody {
 
   motion() {
     const pulse = globalPulse;
+    if (DEBUG_VISUAL) {
+      // En debug: vibración muy contenida. El cuerpo respira y vive
+      // sin emborronar la forma. Verifiable contra la referencia.
+      return {
+        swayX: sin(frameCount * 0.0055 + this.phase) * 1.3,
+        swayY: cos(frameCount * 0.0080 + this.phase) * 0.7,
+        breath: sin(frameCount * 0.022 + this.phase),
+        pulseScale: 1 + pulse * 0.010,
+        tilt: sin(frameCount * 0.0048 + this.phase) * 0.005,
+      };
+    }
     return {
       // sway sutil, vertical predomina (respiración)
       swayX: sin(frameCount * 0.0080 + this.phase) * 3.0,
@@ -331,8 +354,9 @@ class FiberBody {
   toWorld(lx, ly) {
     const m = this.motion();
     // respiración: el cuerpo se ensancha levemente
-    const breathX = 1 + m.breath * 0.018;
-    const breathY = 1 + m.breath * 0.024;
+    const breathAmp = DEBUG_VISUAL ? 0.008 : 0.018;
+    const breathX = 1 + m.breath * breathAmp;
+    const breathY = 1 + m.breath * (breathAmp * 1.3);
     const ps = m.pulseScale;
 
     const ox = (lx - this.bodyW * 0.5) * breathX * ps;
@@ -367,13 +391,16 @@ class Fiber {
     this.seed = random(10000);
 
     // Color del píxel del referente.
-    // En debug: SIN boost, jitter mínimo → fidelidad cromática absoluta.
-    // En modo artístico: leve boost para que la imagen "viva" un poco más.
-    const boost = DEBUG_VISUAL ? 1.00 : 1.22;
-    const jitter = DEBUG_VISUAL ? 6 : 12;
-    this.r = constrain(pr * boost + random(-jitter, jitter), 0, 255);
-    this.g = constrain(pg * boost + random(-jitter, jitter), 0, 255);
-    this.b = constrain(pb * boost + random(-jitter, jitter), 0, 255);
+    // En debug aplicamos gamma (<1) → ilumina los píxeles oscuros sin
+    // quemar los brillantes, y un boost para reforzar la presencia.
+    // El jitter cromático queda mínimo: queremos fidelidad al referente.
+    const boost = DEBUG_VISUAL ? DEBUG_COLOR_BOOST : 1.22;
+    const gamma = DEBUG_VISUAL ? DEBUG_COLOR_GAMMA : 1.0;
+    const jitter = DEBUG_VISUAL ? 5 : 12;
+    const gFix = (c) => 255 * Math.pow(c / 255, gamma);
+    this.r = constrain(gFix(pr) * boost + random(-jitter, jitter), 0, 255);
+    this.g = constrain(gFix(pg) * boost + random(-jitter, jitter), 0, 255);
+    this.b = constrain(gFix(pb) * boost + random(-jitter, jitter), 0, 255);
 
     // Foco cardíaco — solo se usa fuera de debug.
     const dHeart = dist(lx, ly, body.localHeart.x, body.localHeart.y);
@@ -382,15 +409,18 @@ class Fiber {
     this.heartFalloff = DEBUG_VISUAL ? 0 : (this.isHeart ? (1 - dHeart / heartR) : 0);
     this.alphaBoost = 1.0 + this.heartFalloff * 0.18;
 
-    // Física y trazo: en debug los trazos son MÁS PEQUEÑOS y la alpha
-    // más baja (compensamos los 9000 fibers para no quemar pantalla).
+    // Física y trazo: en debug priorizamos PRESENCIA y forma nítida.
+    //   - pull alto + wander bajo + maxDist corto → la fibra no se aleja
+    //     mucho de su punto de origen → la silueta no se borra.
+    //   - alpha y weight multiplicados por los tunables de calibración.
     if (DEBUG_VISUAL) {
-      this.speed = random(0.18, 0.65);
-      this.pull = random(0.024, 0.048);
-      this.wander = random(0.18, 0.55);
-      this.weight = random(0.22, 0.65);
-      this.alpha = random(6, 18) * map(density, 30, 255, 0.55, 1.0);
-      this.maxDist = random(40, 95);
+      this.speed = random(0.14, 0.50);
+      this.pull = random(0.030, 0.058);
+      this.wander = random(0.08, 0.32);
+      this.weight = random(0.30, 0.85) * DEBUG_WEIGHT_MULT;
+      // alpha base más alto, con escala por densidad y multiplicador global
+      this.alpha = random(9, 24) * map(density, 25, 255, 0.55, 1.0) * DEBUG_ALPHA_MULT;
+      this.maxDist = random(28, 65);
     } else {
       this.speed = random(0.22, 0.85);
       this.pull = random(0.022, 0.046);
