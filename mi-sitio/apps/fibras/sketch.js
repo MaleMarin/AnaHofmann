@@ -1,5 +1,5 @@
 /*
- * Anatomía de la Distancia — v603
+ * Anatomía de la Distancia — v604
  *
  * IDEA CENTRAL
  * ------------
@@ -10,7 +10,10 @@
  * png). El anchor activo es lerp(ball, body, morphSmoothed).
  *
  * MORPH
- *   - Lo controla voz.mp4 (currentTime / duration).
+ *   - Línea de tiempo interna (sin audio):
+ *       0..HOLD_SECONDS         → ovillo puro (morph = 0).
+ *       HOLD_SECONDS..HOLD+MORPH→ transformación continua (0 → 1).
+ *       después                  → cuerpo formado (morph = 1).
  *   - smoothstep(0.03, 0.97) para evitar saltos en bordes.
  *   - morphSmoothed = lerp(morphSmoothed, morph, 0.045) para suavizar.
  *
@@ -33,15 +36,16 @@
 // ============ FLAGS ============
 const SHOW_DEBUG_PARAMS = true;
 
-// ============ AUDIO ============
-const VOICE_SRC      = "/apps/fibras/audio/voz.mp4";
-const VOICE_DOM_ID   = "voiceMedia";
+// ============ TIMELINE (sin audio) ============
+// Segundos de ovillo puro al principio, y duración de la transformación.
+// Después de HOLD_SECONDS + MORPH_SECONDS el cuerpo queda formado.
+const HOLD_SECONDS  = 5;
+const MORPH_SECONDS = 25;
 
 // ============ MORPH ============
 let morph         = 0;
 let morphSmoothed = 0;
-let voiceMedia    = null;
-let voiceStarted  = false;
+let startMs       = 0;
 
 // ============ OVILLO ============
 const BALL_RADIUS         = 105;
@@ -129,7 +133,8 @@ function setup() {
   buildScene();
   background(0);
 
-  setupVoiceMedia();
+  startMs = millis();
+  setupRestartButton();
 }
 
 function windowResized() {
@@ -146,67 +151,20 @@ function buildScene() {
 }
 
 /* =========================================================
-   AUDIO  —  voz.mp4 controla el morph (currentTime / duration).
+   TIMELINE  —  morph guiado por reloj interno (sin audio).
 ========================================================= */
 
-function setupVoiceMedia() {
-  // Preferimos el <video id="voiceMedia"> que vive en el DOM (definido
-  // en index.html). Si por algún motivo no está, lo creamos al vuelo
-  // como fallback para no romper la escena.
-  voiceMedia = document.getElementById(VOICE_DOM_ID);
-  if (!voiceMedia) {
-    voiceMedia = document.createElement("video");
-    voiceMedia.id = VOICE_DOM_ID;
-    voiceMedia.src = VOICE_SRC;
-    voiceMedia.preload = "auto";
-    voiceMedia.playsInline = true;
-    voiceMedia.style.display = "none";
-    document.body.appendChild(voiceMedia);
-  }
-
-  voiceMedia.addEventListener("error", () => {
-    console.warn("voz.mp4 no se pudo cargar.");
-    console.warn("voiceMedia.src:", voiceMedia.src);
-    console.warn("voiceMedia.currentSrc:", voiceMedia.currentSrc);
-    console.warn("voiceMedia.error:", voiceMedia.error);
-    console.warn("voiceMedia.duration:", voiceMedia.duration);
-  });
-  voiceMedia.addEventListener("loadedmetadata", () => {
-    console.log("voz.mp4 metadata cargada. duration:", voiceMedia.duration,
-                "currentSrc:", voiceMedia.currentSrc);
-  });
-  voiceMedia.addEventListener("ended", () => {
-    morph = 1;
-    morphSmoothed = 1;
-  });
-
+function setupRestartButton() {
   const btn = document.getElementById("soundToggle");
   if (!btn) return;
 
   btn.style.display = "block";
-  btn.textContent = "iniciar";
+  btn.textContent = "reiniciar";
 
   btn.addEventListener("click", () => {
     morph = 0;
     morphSmoothed = 0;
-    voiceStarted = true;
-    if (!voiceMedia) return;
-    try {
-      voiceMedia.currentTime = 0;
-    } catch (e) {
-      // currentTime puede fallar si los metadatos aún no están listos.
-    }
-    const p = voiceMedia.play();
-    if (p && p.catch) {
-      p.catch(err => {
-        console.warn("no se pudo reproducir voz.mp4", err);
-        console.warn("voiceMedia.src:", voiceMedia.src);
-        console.warn("voiceMedia.currentSrc:", voiceMedia.currentSrc);
-        console.warn("voiceMedia.error:", voiceMedia.error);
-        console.warn("voiceMedia.duration:", voiceMedia.duration);
-      });
-    }
-    btn.textContent = "reiniciar";
+    startMs = millis();
   });
 }
 
@@ -219,11 +177,17 @@ function smoothstep(edge0, edge1, x) {
   return t * t * (3 - 2 * t);
 }
 
+// Reloj interno: 5 s de ovillo, después la transformación avanza
+// linealmente durante MORPH_SECONDS y se queda en 1.
+function getElapsedSeconds() {
+  return (millis() - startMs) / 1000;
+}
+
 function getRawProgress() {
-  if (!voiceMedia) return 0;
-  const dur = voiceMedia.duration;
-  if (!dur || isNaN(dur) || !isFinite(dur)) return 0;
-  return constrain(voiceMedia.currentTime / dur, 0, 1);
+  const elapsed = getElapsedSeconds();
+  if (elapsed < HOLD_SECONDS) return 0;
+  const t = (elapsed - HOLD_SECONDS) / MORPH_SECONDS;
+  return constrain(t, 0, 1);
 }
 
 function isMorphingNow() {
@@ -262,16 +226,11 @@ function draw() {
   const bgAlpha = morphing ? 28 : 45;
   background(0, bgAlpha);
 
-  // Morph desde voz.mp4. Si el audio no está cargado, rawProgress = 0.
+  // Morph desde la línea de tiempo interna.
   const rawProgress = getRawProgress();
   const morphRaw = constrain(rawProgress, 0, 1);
   morph = smoothstep(0.03, 0.97, morphRaw);
-  if (voiceMedia && voiceMedia.ended) {
-    morph = 1;
-    morphSmoothed = 1;
-  } else {
-    morphSmoothed = lerp(morphSmoothed, morph, 0.045);
-  }
+  morphSmoothed = lerp(morphSmoothed, morph, 0.045);
 
   // Capa 1: cuerpo base con fade gradual (smoothstep), nunca al 100%.
   const bodyBaseAlpha = smoothstep(0.35, 0.95, morphSmoothed) * 0.65;
@@ -651,7 +610,7 @@ function drawDebugOverlay(rawProgress, bodyBaseAlpha, morphing) {
 
   noStroke();
   fill(0, 0, 0, 140);
-  rect(12, 12, 220, 110, 6);
+  rect(12, 12, 230, 124, 6);
 
   textAlign(LEFT, TOP);
   textFont("monospace");
@@ -660,22 +619,20 @@ function drawDebugOverlay(rawProgress, bodyBaseAlpha, morphing) {
   fill(220, 215, 205, 230);
   const x = 22;
   let y = 22;
+  const elapsed = getElapsedSeconds();
+  const phaseLabel = elapsed < HOLD_SECONDS
+    ? "ovillo (hold)"
+    : (rawProgress >= 1 ? "cuerpo formado" : "transformando");
+
+  text(`elapsed:   ${elapsed.toFixed(2)} s`,      x, y); y += 14;
   text(`raw:       ${rawProgress.toFixed(3)}`,    x, y); y += 14;
   text(`morph:     ${morph.toFixed(3)}`,          x, y); y += 14;
   text(`smooth:    ${morphSmoothed.toFixed(3)}`,  x, y); y += 14;
   text(`bodyAlpha: ${bodyBaseAlpha.toFixed(3)}`,  x, y); y += 14;
   text(`morphing:  ${morphing ? "true" : "false"}`, x, y); y += 14;
 
-  // estado audio
-  let st = "no cargado";
-  if (voiceMedia) {
-    if (voiceMedia.error)         st = "error";
-    else if (!voiceMedia.duration || isNaN(voiceMedia.duration)) st = "esperando";
-    else if (voiceMedia.paused)   st = voiceStarted ? "pausa" : "listo";
-    else                          st = "reproduciendo";
-  }
   fill(150, 200, 255, 200);
-  text(`voz:       ${st}`, x, y);
+  text(`fase:      ${phaseLabel}`, x, y);
 
   pop();
 }
