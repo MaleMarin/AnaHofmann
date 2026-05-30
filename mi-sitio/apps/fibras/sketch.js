@@ -1,5 +1,5 @@
 /*
- * Anatomía de la Distancia — v602
+ * Anatomía de la Distancia — v603
  *
  * IDEA CENTRAL
  * ------------
@@ -34,7 +34,8 @@
 const SHOW_DEBUG_PARAMS = true;
 
 // ============ AUDIO ============
-const VOICE_SRC = "/apps/fibras/anatomiadeladistancia/voz.mp4";
+const VOICE_SRC      = "/apps/fibras/audio/voz.mp4";
+const VOICE_DOM_ID   = "voiceMedia";
 
 // ============ MORPH ============
 let morph         = 0;
@@ -149,15 +150,30 @@ function buildScene() {
 ========================================================= */
 
 function setupVoiceMedia() {
-  voiceMedia = document.createElement("video");
-  voiceMedia.src = VOICE_SRC;
-  voiceMedia.preload = "auto";
-  voiceMedia.playsInline = true;
-  voiceMedia.style.display = "none";
-  document.body.appendChild(voiceMedia);
+  // Preferimos el <video id="voiceMedia"> que vive en el DOM (definido
+  // en index.html). Si por algún motivo no está, lo creamos al vuelo
+  // como fallback para no romper la escena.
+  voiceMedia = document.getElementById(VOICE_DOM_ID);
+  if (!voiceMedia) {
+    voiceMedia = document.createElement("video");
+    voiceMedia.id = VOICE_DOM_ID;
+    voiceMedia.src = VOICE_SRC;
+    voiceMedia.preload = "auto";
+    voiceMedia.playsInline = true;
+    voiceMedia.style.display = "none";
+    document.body.appendChild(voiceMedia);
+  }
 
   voiceMedia.addEventListener("error", () => {
-    console.warn("voz.mp4 no se pudo cargar.", voiceMedia.error);
+    console.warn("voz.mp4 no se pudo cargar.");
+    console.warn("voiceMedia.src:", voiceMedia.src);
+    console.warn("voiceMedia.currentSrc:", voiceMedia.currentSrc);
+    console.warn("voiceMedia.error:", voiceMedia.error);
+    console.warn("voiceMedia.duration:", voiceMedia.duration);
+  });
+  voiceMedia.addEventListener("loadedmetadata", () => {
+    console.log("voz.mp4 metadata cargada. duration:", voiceMedia.duration,
+                "currentSrc:", voiceMedia.currentSrc);
   });
   voiceMedia.addEventListener("ended", () => {
     morph = 1;
@@ -182,7 +198,13 @@ function setupVoiceMedia() {
     }
     const p = voiceMedia.play();
     if (p && p.catch) {
-      p.catch(err => console.warn("no se pudo reproducir voz.mp4", err));
+      p.catch(err => {
+        console.warn("no se pudo reproducir voz.mp4", err);
+        console.warn("voiceMedia.src:", voiceMedia.src);
+        console.warn("voiceMedia.currentSrc:", voiceMedia.currentSrc);
+        console.warn("voiceMedia.error:", voiceMedia.error);
+        console.warn("voiceMedia.duration:", voiceMedia.duration);
+      });
     }
     btn.textContent = "reiniciar";
   });
