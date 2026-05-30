@@ -1,5 +1,5 @@
 /*
- * Anatomía de la Distancia — v400
+ * Anatomía de la Distancia — v401
  *
  * NUEVA ESTRATEGIA
  * ----------------
@@ -7,6 +7,11 @@
  * método principal. En su lugar usamos cuerpo-ref.png como CUERPO BASE
  * REAL y la animamos directamente, agregando una capa ligera de fibras
  * vivas encima.
+ *
+ * v401: la animación pasa a ser claramente visible. Se introduce un
+ * modo DEBUG_MOTION_EXAGGERATED que sube las amplitudes de warp /
+ * respiración / movimiento de fibras para CALIBRAR a ojo desde la web.
+ * Luego se baja para la versión final.
  *
  *   CAPA 1 — CUERPO BASE
  *     cuerpo-ref.png rotada 90° CW (de pie), escalada y dibujada en el
@@ -45,10 +50,22 @@
  */
 
 // ============ FASES Y FLAGS ============
-const PHASE         = 1;     // 1: un cuerpo. 2: dos cuerpos (no implementado todavía).
-const DEBUG_VISUAL  = true;  // panel comparativo referencia ↔ animado
+const PHASE                    = 1;     // 1: un cuerpo. 2: dos cuerpos (no implementado todavía).
+const DEBUG_VISUAL             = true;  // panel comparativo referencia ↔ animado
+const DEBUG_MOTION_EXAGGERATED = true;  // exagera el movimiento para calibrar a ojo
 
-// ============ ANIMACIÓN DEL CUERPO ============
+// ============ ANIMACIÓN — MODO CALIBRACIÓN (v401) ============
+// Estos valores se sienten "demasiado", a propósito. Sirven para
+// confirmar que el cuerpo de la derecha está realmente vivo. Luego
+// se baja DEBUG_MOTION_EXAGGERATED y volvemos a los valores suaves.
+const WARP_SLICE_STEP    = 3;       // grosor en px de cada franja de warp
+const WARP_X_AMP_DEBUG   = 16;      // amplitud horizontal del warp exagerado
+const WARP_Y_AMP_DEBUG   = 4;       // amplitud vertical del warp exagerado
+const WARP_SPEED_DEBUG   = 0.025;   // velocidad temporal del warp exagerado
+const BREATH_SCALE_DEBUG = 0.018;   // amplitud de respiración exagerada
+const FIBER_MOTION_DEBUG = 1.8;     // factor de amplificación de las fibras
+
+// ============ ANIMACIÓN — MODO SUAVE (versión final) ============
 const SLICE_HEIGHT      = 4;       // altura px de cada slice de warp
 const WARP_AMP_SLOW     = 2.4;     // amplitud horizontal del warp lento (orgánico)
 const WARP_AMP_FAST     = 0.6;     // amplitud horizontal del warp rápido (microvibración)
@@ -314,6 +331,22 @@ class AnimatedBody {
 
   motion() {
     const t = frameCount;
+
+    if (DEBUG_MOTION_EXAGGERATED) {
+      // Respiración mucho más perceptible: el torso se expande ~2% y la
+      // altura ~2.5%. Suficiente para verlo a ojo sin caricaturizar.
+      const breath = Math.sin(t * 0.035 + this.phase);
+      return {
+        breath,
+        swayX:    Math.sin(t * 0.012 + this.phase) * 3.2,
+        swayY:    Math.cos(t * 0.017 + this.phase) * 1.8,
+        breathSx: 1 + breath * BREATH_SCALE_DEBUG,
+        breathSy: 1 + breath * BREATH_SCALE_DEBUG * 1.4,
+        pulseScale: 1 + globalPulse * 0.020,
+        tilt: Math.sin(t * 0.008 + this.phase) * 0.010,
+      };
+    }
+
     const breath = Math.sin(t * BREATH_SPEED + this.phase);
     return {
       breath,
@@ -363,26 +396,41 @@ class AnimatedBody {
     const masterEl = this.master.elt || this.master.canvas;
     const mw = this.master.width;
     const mh = this.master.height;
-    const slices = max(1, floor(drawH / SLICE_HEIGHT));
+
+    // En modo calibración, slices de 3px (WARP_SLICE_STEP) — más densos.
+    // En modo suave, slices de 4px (SLICE_HEIGHT).
+    const step = DEBUG_MOTION_EXAGGERATED ? WARP_SLICE_STEP : SLICE_HEIGHT;
+    const slices = max(1, floor(drawH / step));
     const sliceSrcH = mh / slices;
     const sliceDstStep = drawH / slices;
-    const sliceDstH = sliceDstStep + 0.6; // overlap mínimo, evita costuras visibles
+    const sliceDstH = sliceDstStep + 1.0; // overlap, evita costuras visibles
 
     for (let i = 0; i < slices; i++) {
       const sy = i * sliceSrcH;
       const dy = i * sliceDstStep;
-      const ny = i / slices;
 
-      // Warp lento (orgánico) + warp rápido (microvibración).
-      const nSlow = noise(ny * WARP_NOISE_FREQ_Y, t * WARP_NOISE_FREQ_T + this.phase * 0.5);
-      const nFast = noise(ny * 8.0 + 100, t * 0.025 + this.phase);
-      const dx = (nSlow - 0.5) * 2 * WARP_AMP_SLOW
-               + (nFast - 0.5) * 2 * WARP_AMP_FAST;
+      let dx, dyOff;
+
+      if (DEBUG_MOTION_EXAGGERATED) {
+        // Warp visible: ruido para X, onda senoidal para Y.
+        // dx ∈ [-WARP_X_AMP_DEBUG/2, +WARP_X_AMP_DEBUG/2]
+        // dyOff = sin(...) * WARP_Y_AMP_DEBUG
+        const nX = noise(i * 0.08, t * WARP_SPEED_DEBUG + this.phase * 0.5);
+        dx    = nX * WARP_X_AMP_DEBUG - WARP_X_AMP_DEBUG / 2;
+        dyOff = Math.sin(t * 0.03 + i * 0.06 + this.phase) * WARP_Y_AMP_DEBUG;
+      } else {
+        const ny = i / slices;
+        const nSlow = noise(ny * WARP_NOISE_FREQ_Y, t * WARP_NOISE_FREQ_T + this.phase * 0.5);
+        const nFast = noise(ny * 8.0 + 100, t * 0.025 + this.phase);
+        dx = (nSlow - 0.5) * 2 * WARP_AMP_SLOW
+           + (nFast - 0.5) * 2 * WARP_AMP_FAST;
+        dyOff = 0;
+      }
 
       ctx.drawImage(
         masterEl,
         0, sy, mw, sliceSrcH,
-        dx, dy, drawW, sliceDstH
+        dx, dy + dyOff, drawW, sliceDstH
       );
     }
 
@@ -443,12 +491,20 @@ class Fiber {
 
   update() {
     const t = this.body.toWorld(this.lx, this.ly);
-    const ang = noise(this.x * 0.003, this.y * 0.003, frameCount * 0.005 + this.seed) * TWO_PI * 2.0;
-    const flowX = Math.cos(ang) * this.speed * 0.3;
-    const flowY = Math.sin(ang) * this.speed * 0.3;
 
-    const jitterX = (noise(this.seed + 10, frameCount * 0.020) - 0.5) * this.wander;
-    const jitterY = (noise(this.seed + 30, frameCount * 0.020) - 0.5) * this.wander;
+    // En modo calibración, las fibras vibran mucho más visiblemente
+    // (más wander, más flow, más jitter), pero siguen ancladas al cuerpo.
+    const k = DEBUG_MOTION_EXAGGERATED ? FIBER_MOTION_DEBUG : 1.0;
+    const noiseSpeed = DEBUG_MOTION_EXAGGERATED ? 0.018 : 0.005;
+    const jitterSpeed = DEBUG_MOTION_EXAGGERATED ? 0.060 : 0.020;
+    const reach = DEBUG_MOTION_EXAGGERATED ? this.maxDist * 1.7 : this.maxDist;
+
+    const ang = noise(this.x * 0.003, this.y * 0.003, frameCount * noiseSpeed + this.seed) * TWO_PI * 2.0;
+    const flowX = Math.cos(ang) * this.speed * 0.3 * k;
+    const flowY = Math.sin(ang) * this.speed * 0.3 * k;
+
+    const jitterX = (noise(this.seed + 10, frameCount * jitterSpeed) - 0.5) * this.wander * k;
+    const jitterY = (noise(this.seed + 30, frameCount * jitterSpeed) - 0.5) * this.wander * k;
 
     this.vx = this.vx * 0.84 + flowX + (t.x - this.x) * this.pull + jitterX;
     this.vy = this.vy * 0.84 + flowY + (t.y - this.y) * this.pull + jitterY;
@@ -457,7 +513,7 @@ class Fiber {
     this.y += this.vy;
 
     const d = dist(this.x, this.y, t.x, t.y);
-    if (d > this.maxDist) {
+    if (d > reach) {
       this.x = lerp(this.x, t.x, 0.55);
       this.y = lerp(this.y, t.y, 0.55);
       this.vx *= 0.4;
@@ -535,11 +591,26 @@ function drawDebugTitle() {
   textAlign(CENTER, CENTER);
   textFont("monospace");
   textSize(12);
+
+  const tag = DEBUG_MOTION_EXAGGERATED ? "MOTION_EXAGGERATED" : "MOTION_SOFT";
   text(
-    "MODO DEBUG · cuerpo base animado + fibras vivas · v400",
+    `MODO DEBUG · cuerpo base animado + fibras vivas · v401 · ${tag}`,
     width * 0.5,
     24
   );
+
+  // Heartbeat de draw(): texto + punto pulsante. Confirma que draw()
+  // efectivamente corre frame a frame. Se quita en la versión final.
+  textAlign(LEFT, CENTER);
+  textSize(10);
+  fill(210, 205, 195, 140);
+  text(`frame ${frameCount}`, 16, 24);
+
+  const pulseR = 3 + (Math.sin(frameCount * 0.18) * 0.5 + 0.5) * 4;
+  noStroke();
+  fill(220, 90, 90, 220);
+  circle(120, 24, pulseR * 2);
+
   pop();
 }
 
