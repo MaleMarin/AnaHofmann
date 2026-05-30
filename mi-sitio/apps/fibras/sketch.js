@@ -1,104 +1,86 @@
 /*
- * Anatomía de la Distancia — v401
+ * Anatomía de la Distancia — v402
  *
- * NUEVA ESTRATEGIA
- * ----------------
- * La reconstrucción del cuerpo con partículas sueltas se abandona como
- * método principal. En su lugar usamos cuerpo-ref.png como CUERPO BASE
- * REAL y la animamos directamente, agregando una capa ligera de fibras
- * vivas encima.
+ * REEMPLAZO DE MOVIMIENTO
+ * -----------------------
+ * v401 tenía movimiento fragmentado: slices de 3px, amplitudes altas,
+ * fibras con jitter rápido y random por frame. Resultado: el cuerpo
+ * se veía nervioso y roto en franjas.
  *
- * v401: la animación pasa a ser claramente visible. Se introduce un
- * modo DEBUG_MOTION_EXAGGERATED que sube las amplitudes de warp /
- * respiración / movimiento de fibras para CALIBRAR a ojo desde la web.
- * Luego se baja para la versión final.
+ * v402 reemplaza ese sistema por uno de:
+ *   - baja frecuencia temporal (todas las velocidades <= 0.012)
+ *   - baja amplitud (warp <= 4 px en X, <= 1.5 px en Y)
+ *   - alta continuidad espacial (slices anchos + noise espacial,
+ *     slices vecinos con desplazamientos parecidos)
+ *   - sin random() por frame en las fibras
+ *   - sin jitter por frame
  *
- *   CAPA 1 — CUERPO BASE
- *     cuerpo-ref.png rotada 90° CW (de pie), escalada y dibujada en el
- *     canvas conservando colores y textura originales.
+ * CAPAS
+ *   1. CUERPO BASE — cuerpo-ref.png rotada 90° CW, pre-renderizada al
+ *      tamaño final en un graphics buffer (this.master).
+ *   2. MOVIMIENTO GLOBAL — sway lento + respiración leve. Aplicados
+ *      como translate + scale al ctx antes del warp.
+ *   3. WARP POR SLICES — el master se redibuja por franjas
+ *      horizontales (WARP_SLICE_STEP=12 px). Cada slice tiene un dx
+ *      por noise espacial+temporal y un dy por onda senoidal lenta.
+ *   4. FIBRAS — capa secundaria. Cada fibra tiene anchor en el cuerpo
+ *      animado y se mueve dentro de un radio pequeño con noise lento
+ *      y damping. Heredan color del píxel original.
  *
- *   CAPA 2 — ANIMACIÓN DEL CUERPO
- *     Movimiento orgánico y muy sutil:
- *       - warp horizontal por slices basado en ruido (lento + rápido)
- *       - respiración leve (escala que crece y baja)
- *       - sway corporal mínimo
- *       - tilt mínimo
- *     La forma original NO se rompe. La imagen se sigue reconociendo.
+ * FASE 1: un solo cuerpo. Sin segundo cuerpo, sin bridges, sin glow
+ * grande, sin pulso final, sin sonido.
  *
- *   CAPA 3 — FIBRAS VIVAS
- *     Una capa fina de fibras nace de píxeles del propio cuerpo y se
- *     mueve cerca de su origen heredando su color. Refuerzan la idea
- *     de "cuerpo vivo" sin reemplazar la imagen.
- *
- *   CAPA 4 — PULSO
- *     Pulso corporal global que afecta:
- *       - brillo del cuerpo (filter brightness)
- *       - saturación del cuerpo (filter saturate)
- *       - alpha y peso de la capa de fibras
- *       - leve escala del cuerpo
- *       - microintensidad en la zona cardíaca (NO una bola dominante,
- *         NO un glow rosa gigante)
- *
- * FASE 1 (este archivo): UN solo cuerpo. Sin segundo cuerpo, sin
- *   bridges, sin distancia central, sin sonido.
- * FASE 2 (siguiente paso): duplicar el cuerpo (espejado), distancia
- *   sutil entre ambos, sonido.
- *
- * DEBUG_VISUAL = true
- *   Muestra la referencia original y el cuerpo animado lado a lado
- *   para comparar fidelidad.
+ * DEBUG_VISUAL = true → referencia a la izquierda, animado a la derecha.
  */
 
-// ============ FASES Y FLAGS ============
-const PHASE                    = 1;     // 1: un cuerpo. 2: dos cuerpos (no implementado todavía).
-const DEBUG_VISUAL             = true;  // panel comparativo referencia ↔ animado
-const DEBUG_MOTION_EXAGGERATED = true;  // exagera el movimiento para calibrar a ojo
+// ============ FLAGS ============
+const PHASE                = 1;
+const DEBUG_VISUAL         = true;
+const SHOW_DEBUG_PARAMS    = true;
+const SHOW_DEBUG_PULSE_DOT = true;
 
-// ============ ANIMACIÓN — MODO CALIBRACIÓN (v401) ============
-// Estos valores se sienten "demasiado", a propósito. Sirven para
-// confirmar que el cuerpo de la derecha está realmente vivo. Luego
-// se baja DEBUG_MOTION_EXAGGERATED y volvemos a los valores suaves.
-const WARP_SLICE_STEP    = 3;       // grosor en px de cada franja de warp
-const WARP_X_AMP_DEBUG   = 16;      // amplitud horizontal del warp exagerado
-const WARP_Y_AMP_DEBUG   = 4;       // amplitud vertical del warp exagerado
-const WARP_SPEED_DEBUG   = 0.025;   // velocidad temporal del warp exagerado
-const BREATH_SCALE_DEBUG = 0.018;   // amplitud de respiración exagerada
-const FIBER_MOTION_DEBUG = 1.8;     // factor de amplificación de las fibras
+// ============ MOVIMIENTO GLOBAL DEL CUERPO ============
+const BODY_SWAY_X_AMP    = 4.0;
+const BODY_SWAY_Y_AMP    = 1.8;
+const BODY_SWAY_SPEED    = 0.0055;
 
-// ============ ANIMACIÓN — MODO SUAVE (versión final) ============
-const SLICE_HEIGHT      = 4;       // altura px de cada slice de warp
-const WARP_AMP_SLOW     = 2.4;     // amplitud horizontal del warp lento (orgánico)
-const WARP_AMP_FAST     = 0.6;     // amplitud horizontal del warp rápido (microvibración)
-const WARP_NOISE_FREQ_Y = 3.2;     // densidad espacial del warp lento
-const WARP_NOISE_FREQ_T = 0.0042;  // velocidad temporal del warp lento
+const BODY_BREATH_SCALE_X = 0.0060;
+const BODY_BREATH_SCALE_Y = 0.0100;
+const BODY_BREATH_SPEED   = 0.0120;
 
-const BREATH_SPEED      = 0.022;   // velocidad de respiración
-const BREATH_AMP        = 0.012;   // expansión por respiración
-const SWAY_AMP_X        = 1.4;     // sway lateral
-const SWAY_AMP_Y        = 0.7;     // sway vertical
+// ============ WARP POR SLICES ============
+const WARP_SLICE_STEP    = 12;
+const WARP_X_AMP         = 3.5;
+const WARP_Y_AMP         = 1.0;
+const WARP_SPEED         = 0.0045;
+const WARP_SPATIAL_SCALE = 0.08;
 
-// ============ CAPA DE FIBRAS VIVAS ============
-const FIBERS_PER_BODY   = 1100;
-const FIBER_DENSITY_MIN = 32;      // umbral de muestreo en el cuerpo
-const FIBER_ACCEPT_GAIN = 1.0;
-const FIBER_ALPHA_BASE  = 16;
-const FIBER_WEIGHT_MIN  = 0.32;
-const FIBER_WEIGHT_MAX  = 1.05;
-const FIBER_MAX_DIST    = 14;      // las fibras NO se alejan del cuerpo
-const FIBER_HISTORY     = 7;
+// ============ FIBRAS ============
+const FIBER_NOISE_SPEED  = 0.0035;
+const FIBER_WANDER_AMP   = 1.4;
+const FIBER_ANCHOR_PULL  = 0.06;
+const FIBER_DAMPING      = 0.88;
+const FIBER_MAX_OFFSET   = 4.0;
+
+const FIBER_ALPHA_MULT   = 0.85;
+const FIBER_WEIGHT_MULT  = 0.95;
+
+// ============ MUESTREO DE FIBRAS ============
+const FIBERS_PER_BODY    = 1100;
+const FIBER_DENSITY_MIN  = 32;
+const FIBER_ACCEPT_GAIN  = 1.0;
+const FIBER_ALPHA_BASE   = 16;
+const FIBER_WEIGHT_MIN   = 0.32;
+const FIBER_WEIGHT_MAX   = 1.05;
+const FIBER_HISTORY      = 6;
 
 // ============ ANCLAS DENTRO DE LA IMAGEN YA ROTADA ============
-// Referencia original es horizontal (cabeza a la izquierda).
-// Tras rotar 90° CW para ponerla de pie:
-//   cabeza   → (0.48, 0.13)
-//   corazón  → (0.57, 0.26)
 const HEAD_REL  = { x: 0.48, y: 0.13 };
 const HEART_REL = { x: 0.57, y: 0.26 };
 
 // ============ ESTADO ============
 let bodyRefImg;
 let bodies = [];
-let globalPulse = 0;
 
 // audio (FASE 2 — apagado en FASE 1)
 let bassOsc, subOsc, filterNode;
@@ -125,7 +107,6 @@ function setup() {
 
   setupSoundUI();
 
-  // FASE 1 / DEBUG: ocultamos el botón de sonido (no se usa todavía).
   const btn = document.getElementById("soundToggle");
   if (btn) btn.style.display = (PHASE < 2 || DEBUG_VISUAL) ? "none" : "block";
 }
@@ -140,30 +121,20 @@ function buildScene() {
   bodies = [];
 
   if (DEBUG_VISUAL) {
-    // FASE DEBUG: cuerpo a la derecha, referencia a la izquierda.
     bodies.push(new AnimatedBody(width * 0.72, height * 0.52, false, 0.0));
   } else if (PHASE < 2) {
-    // FASE 1: un único cuerpo, centrado.
     bodies.push(new AnimatedBody(width * 0.50, height * 0.52, false, 0.0));
   } else {
-    // FASE 2: dos cuerpos espejados con aire entre ellos.
     bodies.push(new AnimatedBody(width * 0.28, height * 0.52, false, 0.0));
     bodies.push(new AnimatedBody(width * 0.72, height * 0.52, true,  PI * 0.7));
   }
 }
 
 function draw() {
-  // Fade suave: barre los rastros de las fibras sin oscurecer el cuerpo
-  // (que se redibuja entero cada frame).
   background(0, DEBUG_VISUAL ? 38 : 30);
 
-  const t = millis() / 1000;
-  globalPulse = computePulse(t);
-
-  // CAPAS 1 + 2 — cuerpo base con warp animado
   for (const body of bodies) body.drawBase();
 
-  // CAPA 3 — fibras vivas encima, modo aditivo
   drawingContext.save();
   drawingContext.globalCompositeOperation = "lighter";
   for (const body of bodies) body.drawFibers();
@@ -172,26 +143,29 @@ function draw() {
   if (DEBUG_VISUAL) {
     drawDebugReferencePanel();
     drawDebugTitle();
+    if (SHOW_DEBUG_PARAMS)   drawDebugParams();
+    if (SHOW_DEBUG_PULSE_DOT) drawDebugPulseDot();
   } else {
     drawTitle();
   }
 }
 
 /* =========================================================
-   PULSO
-   FASE 1: pulso bajo y suave (el cuerpo respira sin dramatismo).
-   FASE 2: heartbeat con lub-dub.
+   MOVIMIENTO GLOBAL DEL CUERPO
+   Centralizado: sway lento + respiración leve. Esto es lo único que
+   afecta al cuerpo entero (translate + scale). NO se aplican otras
+   oscilaciones rápidas (ni tilt, ni pulso, ni jitter).
 ========================================================= */
 
-function computePulse(t) {
-  if (PHASE < 2) {
-    return 0.16 + (Math.sin(t * 1.1) * 0.5 + 0.5) * 0.10;
-  }
-  const period = 0.92;
-  const x = (t % period) / period;
-  const lub = Math.exp(-Math.pow((x - 0.00) / 0.045, 2));
-  const dub = 0.72 * Math.exp(-Math.pow((x - 0.20) / 0.055, 2));
-  return constrain(0.18 + Math.max(lub, dub) * 0.82, 0, 1);
+function getBodyMotion(frame) {
+  const swayX = Math.sin(frame * BODY_SWAY_SPEED) * BODY_SWAY_X_AMP;
+  const swayY = Math.cos(frame * BODY_SWAY_SPEED * 0.85) * BODY_SWAY_Y_AMP;
+
+  const breath = Math.sin(frame * BODY_BREATH_SPEED);
+  const scaleX = 1 + breath * BODY_BREATH_SCALE_X;
+  const scaleY = 1 + breath * BODY_BREATH_SCALE_Y;
+
+  return { swayX, swayY, breath, scaleX, scaleY };
 }
 
 /* =========================================================
@@ -202,7 +176,7 @@ function setupSoundUI() {
   const btn = document.getElementById("soundToggle");
   if (!btn) return;
   btn.addEventListener("click", async () => {
-    if (PHASE < 2) return; // todavía no
+    if (PHASE < 2) return;
     try { await userStartAudio(); } catch (e) { console.warn(e); }
     if (!audioReady) buildAudio();
     soundOn = !soundOn;
@@ -239,8 +213,8 @@ function buildAudio() {
 /* =========================================================
    ANIMATED BODY
    - Pre-renderiza la imagen rotada como master.
-   - Cada frame redibuja el master por slices con warp.
-   - Mantiene una capa de fibras vivas que nacen del propio cuerpo.
+   - Cada frame redibuja el master por slices horizontales con warp.
+   - Mantiene una capa de fibras vivas ancladas al cuerpo en movimiento.
 ========================================================= */
 
 class AnimatedBody {
@@ -250,8 +224,6 @@ class AnimatedBody {
     this.mirror = mirror;
     this.phase = phase;
 
-    // El referente es horizontal (W > H). Al rotarlo 90° CW:
-    //   nuevo_aspect = H_ref / W_ref  →  cuerpo de pie.
     const aspect = bodyRefImg.height / bodyRefImg.width;
 
     let h = min(height * (DEBUG_VISUAL ? 0.78 : 0.86), 900);
@@ -272,21 +244,17 @@ class AnimatedBody {
     this.buildFibers();
   }
 
-  // Pre-render: imagen rotada y escalada al tamaño final del cuerpo.
-  // Esto permite usar drawImage con rect de origen para el slicing.
+  // Pre-render: imagen rotada 90° CW y escalada al tamaño final del cuerpo.
   buildMaster() {
     const g = createGraphics(floor(this.bodyW), floor(this.bodyH));
     g.pixelDensity(1);
     g.clear();
 
-    // Rotación 90° CW. En el frame rotado, el ancho del referente
-    // (W_ref) se extiende verticalmente en g (→ g.height) y la altura
-    // (H_ref) horizontalmente (→ g.width). Por eso pasamos (g.height, g.width).
     g.push();
     g.imageMode(CENTER);
     g.translate(g.width / 2, g.height / 2);
     g.rotate(HALF_PI);
-    if (this.mirror) g.scale(1, -1); // tras la rotación, flip local-y = flip global-x
+    if (this.mirror) g.scale(1, -1);
     g.image(bodyRefImg, 0, 0, g.height, g.width);
     g.pop();
 
@@ -294,8 +262,8 @@ class AnimatedBody {
     this.master = g;
   }
 
-  // Genera puntos de origen para las fibras a partir de píxeles del cuerpo.
-  // Densidad combinada brillo+saturación (rescata zonas oscuras pero coloridas).
+  // Puntos de origen para las fibras: muestreo por densidad (brillo + saturación)
+  // sobre el master. Se hace UNA vez en build; el random() aquí no corre por frame.
   buildFibers() {
     this.fibers = [];
     const px = this.master.pixels;
@@ -329,103 +297,49 @@ class AnimatedBody {
     }
   }
 
-  motion() {
-    const t = frameCount;
-
-    if (DEBUG_MOTION_EXAGGERATED) {
-      // Respiración mucho más perceptible: el torso se expande ~2% y la
-      // altura ~2.5%. Suficiente para verlo a ojo sin caricaturizar.
-      const breath = Math.sin(t * 0.035 + this.phase);
-      return {
-        breath,
-        swayX:    Math.sin(t * 0.012 + this.phase) * 3.2,
-        swayY:    Math.cos(t * 0.017 + this.phase) * 1.8,
-        breathSx: 1 + breath * BREATH_SCALE_DEBUG,
-        breathSy: 1 + breath * BREATH_SCALE_DEBUG * 1.4,
-        pulseScale: 1 + globalPulse * 0.020,
-        tilt: Math.sin(t * 0.008 + this.phase) * 0.010,
-      };
-    }
-
-    const breath = Math.sin(t * BREATH_SPEED + this.phase);
-    return {
-      breath,
-      swayX:    Math.sin(t * 0.0055 + this.phase) * SWAY_AMP_X,
-      swayY:    Math.cos(t * 0.0080 + this.phase) * SWAY_AMP_Y,
-      breathSx: 1 + breath * BREATH_AMP,
-      breathSy: 1 + breath * BREATH_AMP * 0.7,
-      pulseScale: 1 + globalPulse * 0.012,
-      tilt: Math.sin(t * 0.0048 + this.phase) * 0.004,
-    };
-  }
-
   // Mapea coordenadas locales del master al canvas, aplicando el mismo
-  // movimiento corporal que la CAPA 2. Las fibras lo usan como objetivo.
+  // movimiento global que el ctx en drawBase(). Las fibras usan esto
+  // como anchor móvil cada frame.
   toWorld(lx, ly) {
-    const m = this.motion();
-    const ox = (lx - this.bodyW * 0.5) * m.breathSx * m.pulseScale;
-    const oy = (ly - this.bodyH * 0.5) * m.breathSy * m.pulseScale;
-    const a = m.tilt;
-    const rx = ox * Math.cos(a) - oy * Math.sin(a);
-    const ry = ox * Math.sin(a) + oy * Math.cos(a);
-    return { x: this.cx + m.swayX + rx, y: this.cy + m.swayY + ry };
+    const m = getBodyMotion(frameCount + this.phase * 60);
+    const ox = (lx - this.bodyW * 0.5) * m.scaleX;
+    const oy = (ly - this.bodyH * 0.5) * m.scaleY;
+    return { x: this.cx + m.swayX + ox, y: this.cy + m.swayY + oy };
   }
 
   heartCenter() { return this.toWorld(this.localHeart.x, this.localHeart.y); }
   headCenter()  { return this.toWorld(this.localHead.x,  this.localHead.y);  }
 
-  // CAPA 1 + CAPA 2 + brillo/saturación de CAPA 4.
+  // CAPA 1 + 2 + 3 — cuerpo base con movimiento global + warp por slices.
   drawBase() {
-    const m = this.motion();
-    const t = frameCount;
-    const drawW = this.bodyW * m.breathSx * m.pulseScale;
-    const drawH = this.bodyH * m.breathSy * m.pulseScale;
+    const m = getBodyMotion(frameCount + this.phase * 60);
+    const drawW = this.bodyW * m.scaleX;
+    const drawH = this.bodyH * m.scaleY;
 
     const ctx = drawingContext;
     ctx.save();
 
-    // CAPA 4 (parte 1) — pulso modula brillo + saturación globales del cuerpo.
-    const bright = 1.00 + globalPulse * 0.18;
-    const sat    = 1.00 + globalPulse * 0.30;
-    ctx.filter = `brightness(${bright.toFixed(3)}) saturate(${sat.toFixed(3)})`;
-
     ctx.translate(this.cx + m.swayX, this.cy + m.swayY);
-    ctx.rotate(m.tilt);
     ctx.translate(-drawW * 0.5, -drawH * 0.5);
 
     const masterEl = this.master.elt || this.master.canvas;
     const mw = this.master.width;
     const mh = this.master.height;
 
-    // En modo calibración, slices de 3px (WARP_SLICE_STEP) — más densos.
-    // En modo suave, slices de 4px (SLICE_HEIGHT).
-    const step = DEBUG_MOTION_EXAGGERATED ? WARP_SLICE_STEP : SLICE_HEIGHT;
-    const slices = max(1, floor(drawH / step));
+    const slices = max(1, floor(drawH / WARP_SLICE_STEP));
     const sliceSrcH = mh / slices;
     const sliceDstStep = drawH / slices;
-    const sliceDstH = sliceDstStep + 1.0; // overlap, evita costuras visibles
+    const sliceDstH = sliceDstStep + 1.0;
 
     for (let i = 0; i < slices; i++) {
       const sy = i * sliceSrcH;
       const dy = i * sliceDstStep;
 
-      let dx, dyOff;
+      const n = noise(i * WARP_SPATIAL_SCALE, frameCount * WARP_SPEED + this.phase * 0.5);
+      const dx = map(n, 0, 1, -WARP_X_AMP, WARP_X_AMP);
 
-      if (DEBUG_MOTION_EXAGGERATED) {
-        // Warp visible: ruido para X, onda senoidal para Y.
-        // dx ∈ [-WARP_X_AMP_DEBUG/2, +WARP_X_AMP_DEBUG/2]
-        // dyOff = sin(...) * WARP_Y_AMP_DEBUG
-        const nX = noise(i * 0.08, t * WARP_SPEED_DEBUG + this.phase * 0.5);
-        dx    = nX * WARP_X_AMP_DEBUG - WARP_X_AMP_DEBUG / 2;
-        dyOff = Math.sin(t * 0.03 + i * 0.06 + this.phase) * WARP_Y_AMP_DEBUG;
-      } else {
-        const ny = i / slices;
-        const nSlow = noise(ny * WARP_NOISE_FREQ_Y, t * WARP_NOISE_FREQ_T + this.phase * 0.5);
-        const nFast = noise(ny * 8.0 + 100, t * 0.025 + this.phase);
-        dx = (nSlow - 0.5) * 2 * WARP_AMP_SLOW
-           + (nFast - 0.5) * 2 * WARP_AMP_FAST;
-        dyOff = 0;
-      }
+      const wave = Math.sin(frameCount * WARP_SPEED * 1.3 + i * 0.12 + this.phase);
+      const dyOff = wave * WARP_Y_AMP;
 
       ctx.drawImage(
         masterEl,
@@ -434,7 +348,6 @@ class AnimatedBody {
       );
     }
 
-    ctx.filter = "none";
     ctx.restore();
   }
 
@@ -447,9 +360,8 @@ class AnimatedBody {
 }
 
 /* =========================================================
-   FIBER  —  capa ligera de fibras vivas que ACOMPAÑAN el cuerpo.
-   No lo reemplazan: se mueven cerca de su píxel de origen, heredan
-   color del cuerpo y respiran con él.
+   FIBER  —  capa secundaria. Anchor móvil + noise lento + damping.
+   Sin jitter por frame. Sin random() por frame.
 ========================================================= */
 
 class Fiber {
@@ -459,27 +371,17 @@ class Fiber {
     this.ly = ly;
     this.seed = random(10000);
 
-    // Color del píxel del referente (sin tunear: queremos fidelidad).
     this.r = pr;
     this.g = pg;
     this.b = pb;
     this.density = density;
 
-    // Microintensidad en zona cardíaca: ligero refuerzo, NO una bola.
-    const dHeart = dist(lx, ly, body.localHeart.x, body.localHeart.y);
-    const heartR = min(body.bodyW, body.bodyH) * 0.08;
-    this.heartFalloff = dHeart < heartR ? (1 - dHeart / heartR) : 0;
-
-    this.speed   = random(0.10, 0.30);
-    this.pull    = random(0.045, 0.085);
-    this.wander  = random(0.06, 0.20);
-    this.weight  = random(FIBER_WEIGHT_MIN, FIBER_WEIGHT_MAX);
-    this.alpha   = FIBER_ALPHA_BASE * map(density, 30, 255, 0.5, 1.0);
-    this.maxDist = random(FIBER_MAX_DIST * 0.7, FIBER_MAX_DIST);
+    this.weight = random(FIBER_WEIGHT_MIN, FIBER_WEIGHT_MAX);
+    this.alpha  = FIBER_ALPHA_BASE * map(density, 30, 255, 0.5, 1.0);
 
     const w = body.toWorld(lx, ly);
-    this.x = w.x + random(-1.2, 1.2);
-    this.y = w.y + random(-1.2, 1.2);
+    this.x  = w.x;
+    this.y  = w.y;
     this.vx = 0;
     this.vy = 0;
 
@@ -490,34 +392,37 @@ class Fiber {
   }
 
   update() {
-    const t = this.body.toWorld(this.lx, this.ly);
+    const anchor = this.body.toWorld(this.lx, this.ly);
+    const anchorX = anchor.x;
+    const anchorY = anchor.y;
 
-    // En modo calibración, las fibras vibran mucho más visiblemente
-    // (más wander, más flow, más jitter), pero siguen ancladas al cuerpo.
-    const k = DEBUG_MOTION_EXAGGERATED ? FIBER_MOTION_DEBUG : 1.0;
-    const noiseSpeed = DEBUG_MOTION_EXAGGERATED ? 0.018 : 0.005;
-    const jitterSpeed = DEBUG_MOTION_EXAGGERATED ? 0.060 : 0.020;
-    const reach = DEBUG_MOTION_EXAGGERATED ? this.maxDist * 1.7 : this.maxDist;
+    const targetX = anchorX + map(
+      noise(this.seed, frameCount * FIBER_NOISE_SPEED),
+      0, 1,
+      -FIBER_WANDER_AMP, FIBER_WANDER_AMP
+    );
+    const targetY = anchorY + map(
+      noise(this.seed + 100, frameCount * FIBER_NOISE_SPEED),
+      0, 1,
+      -FIBER_WANDER_AMP, FIBER_WANDER_AMP
+    );
 
-    const ang = noise(this.x * 0.003, this.y * 0.003, frameCount * noiseSpeed + this.seed) * TWO_PI * 2.0;
-    const flowX = Math.cos(ang) * this.speed * 0.3 * k;
-    const flowY = Math.sin(ang) * this.speed * 0.3 * k;
+    const ax = (targetX - this.x) * FIBER_ANCHOR_PULL;
+    const ay = (targetY - this.y) * FIBER_ANCHOR_PULL;
 
-    const jitterX = (noise(this.seed + 10, frameCount * jitterSpeed) - 0.5) * this.wander * k;
-    const jitterY = (noise(this.seed + 30, frameCount * jitterSpeed) - 0.5) * this.wander * k;
-
-    this.vx = this.vx * 0.84 + flowX + (t.x - this.x) * this.pull + jitterX;
-    this.vy = this.vy * 0.84 + flowY + (t.y - this.y) * this.pull + jitterY;
+    this.vx = (this.vx + ax) * FIBER_DAMPING;
+    this.vy = (this.vy + ay) * FIBER_DAMPING;
 
     this.x += this.vx;
     this.y += this.vy;
 
-    const d = dist(this.x, this.y, t.x, t.y);
-    if (d > reach) {
-      this.x = lerp(this.x, t.x, 0.55);
-      this.y = lerp(this.y, t.y, 0.55);
-      this.vx *= 0.4;
-      this.vy *= 0.4;
+    const offX = this.x - anchorX;
+    const offY = this.y - anchorY;
+    const offD = Math.sqrt(offX * offX + offY * offY);
+
+    if (offD > FIBER_MAX_OFFSET) {
+      this.x = lerp(this.x, anchorX, 0.15);
+      this.y = lerp(this.y, anchorY, 0.15);
     }
 
     this.history.push({ x: this.x, y: this.y });
@@ -526,13 +431,9 @@ class Fiber {
 
   display() {
     if (this.history.length < 4) return;
-    const flicker = 0.85 + noise(this.seed, frameCount * 0.025) * 0.30;
-    // CAPA 4 (parte 2) — alpha y peso de las fibras escalan con el pulso.
-    const alphaScale = 0.72 + globalPulse * 0.55;
-    const heartBoost = 1 + this.heartFalloff * globalPulse * 0.40;
 
-    stroke(this.r, this.g, this.b, this.alpha * flicker * alphaScale * heartBoost);
-    strokeWeight(this.weight * (1 + globalPulse * 0.15));
+    stroke(this.r, this.g, this.b, this.alpha * FIBER_ALPHA_MULT);
+    strokeWeight(this.weight * FIBER_WEIGHT_MULT);
     noFill();
 
     beginShape();
@@ -545,7 +446,7 @@ class Fiber {
 }
 
 /* =========================================================
-   DEBUG  —  comparación referencia ↔ resultado animado.
+   DEBUG  —  comparación referencia ↔ animado + parámetros activos.
 ========================================================= */
 
 function drawDebugReferencePanel() {
@@ -591,26 +492,56 @@ function drawDebugTitle() {
   textAlign(CENTER, CENTER);
   textFont("monospace");
   textSize(12);
-
-  const tag = DEBUG_MOTION_EXAGGERATED ? "MOTION_EXAGGERATED" : "MOTION_SOFT";
   text(
-    `MODO DEBUG · cuerpo base animado + fibras vivas · v401 · ${tag}`,
+    "MODO DEBUG · cuerpo base + warp continuo + fibras ancladas · v402",
     width * 0.5,
     24
   );
 
-  // Heartbeat de draw(): texto + punto pulsante. Confirma que draw()
-  // efectivamente corre frame a frame. Se quita en la versión final.
   textAlign(LEFT, CENTER);
   textSize(10);
   fill(210, 205, 195, 140);
   text(`frame ${frameCount}`, 16, 24);
+  pop();
+}
 
-  const pulseR = 3 + (Math.sin(frameCount * 0.18) * 0.5 + 0.5) * 4;
+function drawDebugParams() {
+  push();
+  drawingContext.globalCompositeOperation = "source-over";
+  noStroke();
+  fill(210, 205, 195, 120);
+  textAlign(LEFT, TOP);
+  textFont("monospace");
+  textSize(10);
+
+  const lines = [
+    `WARP_SLICE_STEP   ${WARP_SLICE_STEP}`,
+    `WARP_X_AMP        ${WARP_X_AMP}`,
+    `WARP_Y_AMP        ${WARP_Y_AMP}`,
+    `WARP_SPEED        ${WARP_SPEED}`,
+    `BODY_SWAY_SPEED   ${BODY_SWAY_SPEED}`,
+    `BODY_BREATH_SPEED ${BODY_BREATH_SPEED}`,
+    `FIBER_NOISE_SPEED ${FIBER_NOISE_SPEED}`,
+  ];
+  const x = 16;
+  let y = 44;
+  for (const line of lines) {
+    text(line, x, y);
+    y += 13;
+  }
+  pop();
+}
+
+// Punto pulsante con la frecuencia de respiración. Sirve solo para
+// confirmar visualmente que draw() está corriendo a la velocidad esperada.
+function drawDebugPulseDot() {
+  push();
+  drawingContext.globalCompositeOperation = "source-over";
+  const phase = Math.sin(frameCount * BODY_BREATH_SPEED);
+  const r = 3 + (phase * 0.5 + 0.5) * 4;
   noStroke();
   fill(220, 90, 90, 220);
-  circle(120, 24, pulseR * 2);
-
+  circle(width - 24, 24, r * 2);
   pop();
 }
 
