@@ -275,59 +275,80 @@ function buildAirplaneSound() {
   airplaneGain.connect(comp);
   comp.connect(audioMasterGain);
 
-  // Capa 1: rumble grave (~56-60Hz, dos saws desafinadas).
+  // Capa 1: rumble grave (~54-62Hz, dos saws desafinadas) con AM tipo
+  // hélice. La modulación de amplitud (~13Hz) imita el "chop" de las
+  // palas — es lo que el oído identifica enseguida como "avión".
   const low1 = audioCtx.createOscillator();
   low1.type = "sawtooth";
-  low1.frequency.value = 56;
+  low1.frequency.value = 54;
   const low2 = audioCtx.createOscillator();
   low2.type = "sawtooth";
-  low2.frequency.value = 60;
+  low2.frequency.value = 62;
   const lowFilt = audioCtx.createBiquadFilter();
   lowFilt.type = "lowpass";
-  lowFilt.frequency.value = 240;
+  lowFilt.frequency.value = 260;
   const lowGain = audioCtx.createGain();
-  lowGain.gain.value = 0.55;
+  lowGain.gain.value = 0.58;
   low1.connect(lowFilt);
   low2.connect(lowFilt);
   lowFilt.connect(lowGain);
   lowGain.connect(airplaneGain);
 
-  // Capa 2: rumble medio (~165Hz) filtrado.
+  // LFO de hélice sobre lowGain: oscila el volumen del rumble grave.
+  const propLfo = audioCtx.createOscillator();
+  propLfo.type = "sine";
+  propLfo.frequency.value = 13;
+  const propAmt = audioCtx.createGain();
+  propAmt.gain.value = 0.22;          // profundidad del chop
+  propLfo.connect(propAmt);
+  propAmt.connect(lowGain.gain);
+
+  // Capa 2: rumble medio (~165Hz) con su propio chop más lento, así no se
+  // sincroniza con el grave y se siente más orgánico.
   const mid = audioCtx.createOscillator();
   mid.type = "sawtooth";
   mid.frequency.value = 165;
   const midFilt = audioCtx.createBiquadFilter();
   midFilt.type = "lowpass";
-  midFilt.frequency.value = 700;
+  midFilt.frequency.value = 800;
   midFilt.Q.value = 2;
   const midGain = audioCtx.createGain();
-  midGain.gain.value = 0.30;
+  midGain.gain.value = 0.34;
   mid.connect(midFilt);
   midFilt.connect(midGain);
   midGain.connect(airplaneGain);
 
-  // Capa 3: turbina (~900Hz con vibrato lento por LFO).
+  const midPropLfo = audioCtx.createOscillator();
+  midPropLfo.type = "sine";
+  midPropLfo.frequency.value = 8.5;
+  const midPropAmt = audioCtx.createGain();
+  midPropAmt.gain.value = 0.10;
+  midPropLfo.connect(midPropAmt);
+  midPropAmt.connect(midGain.gain);
+
+  // Capa 3: turbina (~950Hz). Más presente que antes, con vibrato más
+  // amplio (±90Hz) para que se sienta movimiento de motor real.
   const whine = audioCtx.createOscillator();
   whine.type = "sawtooth";
-  whine.frequency.value = 900;
+  whine.frequency.value = 950;
   const whineFilt = audioCtx.createBiquadFilter();
   whineFilt.type = "bandpass";
-  whineFilt.frequency.value = 1200;
-  whineFilt.Q.value = 5;
+  whineFilt.frequency.value = 1300;
+  whineFilt.Q.value = 6;
   const whineGain = audioCtx.createGain();
-  whineGain.gain.value = 0.20;
+  whineGain.gain.value = 0.32;
   whine.connect(whineFilt);
   whineFilt.connect(whineGain);
   whineGain.connect(airplaneGain);
 
-  const lfo = audioCtx.createOscillator();
-  lfo.frequency.value = 0.35;
-  const lfoAmt = audioCtx.createGain();
-  lfoAmt.gain.value = 30;
-  lfo.connect(lfoAmt);
-  lfoAmt.connect(whine.frequency);
+  const whineLfo = audioCtx.createOscillator();
+  whineLfo.frequency.value = 0.45;
+  const whineLfoAmt = audioCtx.createGain();
+  whineLfoAmt.gain.value = 90;          // vibrato amplio (±90Hz)
+  whineLfo.connect(whineLfoAmt);
+  whineLfoAmt.connect(whine.frequency);
 
-  // Capa 4: ruido blanco filtrado (aire / motor).
+  // Capa 4: ruido bandpass (aire / motor en banda media).
   const noiseBuf = audioCtx.createBuffer(1, audioCtx.sampleRate * 2, audioCtx.sampleRate);
   const data = noiseBuf.getChannelData(0);
   for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
@@ -336,10 +357,10 @@ function buildAirplaneSound() {
   noise.loop = true;
   const noiseFilt = audioCtx.createBiquadFilter();
   noiseFilt.type = "bandpass";
-  noiseFilt.frequency.value = 700;
-  noiseFilt.Q.value = 0.8;
+  noiseFilt.frequency.value = 800;
+  noiseFilt.Q.value = 0.7;
   const noiseGain = audioCtx.createGain();
-  noiseGain.gain.value = 0.45;
+  noiseGain.gain.value = 0.50;
   noise.connect(noiseFilt);
   noiseFilt.connect(noiseGain);
   noiseGain.connect(airplaneGain);
@@ -347,18 +368,36 @@ function buildAirplaneSound() {
   const noiseLfo = audioCtx.createOscillator();
   noiseLfo.frequency.value = 0.18;
   const noiseLfoAmt = audioCtx.createGain();
-  noiseLfoAmt.gain.value = 200;
+  noiseLfoAmt.gain.value = 240;
   noiseLfo.connect(noiseLfoAmt);
   noiseLfoAmt.connect(noiseFilt.frequency);
+
+  // Capa 5: aire alto / "viento" (highpass del mismo buffer de ruido).
+  // Suma esa hisstacia que tiene un avión a velocidad de crucero.
+  const wind = audioCtx.createBufferSource();
+  wind.buffer = noiseBuf;
+  wind.loop = true;
+  const windFilt = audioCtx.createBiquadFilter();
+  windFilt.type = "highpass";
+  windFilt.frequency.value = 2200;
+  windFilt.Q.value = 0.5;
+  const windGain = audioCtx.createGain();
+  windGain.gain.value = 0.22;
+  wind.connect(windFilt);
+  windFilt.connect(windGain);
+  windGain.connect(airplaneGain);
 
   const t = audioCtx.currentTime;
   low1.start(t);
   low2.start(t);
   mid.start(t);
   whine.start(t);
-  lfo.start(t);
+  whineLfo.start(t);
+  propLfo.start(t);
+  midPropLfo.start(t);
   noise.start(t);
   noiseLfo.start(t);
+  wind.start(t);
 }
 
 function buildHeartbeatSound() {
@@ -428,7 +467,8 @@ function scheduleHeartbeat(now) {
   }
 }
 
-// Crossfade avión → latido en función del morph.
+// Crossfade avión → latido en función del morph. Ventanas amplias y muy
+// solapadas para que la fusión sea LENTA y los dos sonidos convivan.
 function updateAudio(morphSm) {
   if (!audioReady) return;
   const t = audioCtx.currentTime;
@@ -436,13 +476,18 @@ function updateAudio(morphSm) {
 
   // Sensación de despegue: el avión arranca bajo y crece en TAKEOFF_RAMP_SEC.
   const takeoffRamp = smoothstep(0, TAKEOFF_RAMP_SEC, elapsed);
-  // Avión domina al inicio, baja cuando aparece la figura humana.
-  const planeMix = (1 - smoothstep(0.40, 0.85, morphSm)) * takeoffRamp;
-  // Latido entra cuando aparece la figura y queda dominante al final.
-  const heartMix = smoothstep(0.45, 0.95, morphSm);
+  // Avión: full hasta morph 0.50, luego baja MUY despacio hasta el final.
+  // Llega a 0 recién en morph 1.10 (más allá del final del morph) para que
+  // el avión nunca se corte en seco — siempre hay una cola de motor.
+  const planeMix = (1 - smoothstep(0.50, 1.10, morphSm)) * takeoffRamp;
+  // Latido: empieza a entrar pronto (morph 0.30) y crece despacio hasta 1.0,
+  // así la transición se siente larga y los dos sonidos se cruzan.
+  const heartMix = smoothstep(0.30, 1.00, morphSm);
 
-  airplaneGain.gain.linearRampToValueAtTime(planeMix * 0.95, t + 0.1);
-  heartbeatGain.gain.linearRampToValueAtTime(heartMix * 1.0, t + 0.1);
+  // Rampas largas (0.4s) para que el cambio de niveles sea suave también
+  // a corto plazo, sin escalones audibles.
+  airplaneGain.gain.linearRampToValueAtTime(planeMix * 0.95, t + 0.4);
+  heartbeatGain.gain.linearRampToValueAtTime(heartMix * 1.0, t + 0.4);
 
   if (heartMix > 0.01) scheduleHeartbeat(t);
 }
