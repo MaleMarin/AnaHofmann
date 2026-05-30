@@ -1,18 +1,29 @@
 /*
- * Anatomía de la Distancia — versión 7
- * Dos cuerpos de pie, hechos de fibras vivas, fieles al referente.
+ * Anatomía de la Distancia — versión 8 (calibración)
  *
- *  - preload() carga apps/fibras/assets/cuerpo-ref.png
- *  - El referente es horizontal (cabeza a la izquierda). En buildMask()
- *    se rota 90° CW para que el cuerpo quede VERTICAL, de pie.
- *  - El cuerpo derecho se espeja horizontalmente respecto al izquierdo.
- *  - El muestreo usa rejection sampling por brillo y hereda color del
- *    píxel del referente → riqueza cromática preservada.
- *  - El pulso (lub-dub) afecta a TODO el cuerpo: alpha, grosor, brillo,
- *    saturación y una expansión muy leve. El corazón es solo una zona
- *    sutil de mayor densidad, sin nube radial dominante.
- *  - Sonido: sub-bass + armónico con LowPass, activado por #soundToggle.
+ * MODO DEBUG_VISUAL:
+ *   - Muestra UN solo cuerpo generado a la derecha y la referencia
+ *     rotada como miniatura a la izquierda, lado a lado.
+ *   - Sin pulso fuerte, sin sonido, sin bridges, sin glow, sin campo.
+ *   - El único objetivo es verificar que el cuerpo de partículas
+ *     se lea como derivado fiel de cuerpo-ref.png.
+ *   - SHOW_REFERENCE_OVERLAY puede activar un fantasma del referente
+ *     debajo del cuerpo para chequear alineación.
+ *
+ * MODO ARTÍSTICO (DEBUG_VISUAL = false):
+ *   - Dos cuerpos de pie + pulso + bridges + sonido + foco cardíaco.
+ *
+ * Muestreo:
+ *   - density = brightness * 0.65 + saturation * 0.35
+ *     → acepta píxeles oscuros pero saturados (la referencia tiene
+ *       fibras oscuras coloridas que igual hacen cuerpo).
+ *   - El color de cada fibra se hereda del píxel del referente.
  */
+
+// ============ FLAGS DE CALIBRACIÓN ============
+const DEBUG_VISUAL          = true;   // referencia | generado lado a lado
+const SHOW_REFERENCE_OVERLAY = false; // fantasma del referente debajo
+// ===============================================
 
 let bodies = [];
 let bridges = [];
@@ -29,11 +40,17 @@ const HEAD_REL  = { x: 0.48, y: 0.13 };
 const HEART_REL = { x: 0.57, y: 0.26 };
 
 const QUALITY = 1.0;
-const BG_FADE = 28;
-const FIBERS_PER_BODY = 5200;
-const BRIDGE_HEART = 70;
-const BRIDGE_HEAD = 36;
-const FIELD_COUNT = 140;
+const BG_FADE = DEBUG_VISUAL ? 36 : 28;
+// densidad necesaria para que el cuerpo se lea como la referencia
+const FIBERS_PER_BODY = DEBUG_VISUAL ? 9000 : 5200;
+// en debug NO queremos hebras entre cuerpos ni campo central
+const BRIDGE_HEART = DEBUG_VISUAL ? 0 : 70;
+const BRIDGE_HEAD  = DEBUG_VISUAL ? 0 : 36;
+const FIELD_COUNT  = DEBUG_VISUAL ? 0 : 140;
+
+// umbrales de muestreo (en escala 0..255 sobre brightness+saturation mezclados)
+const SAMPLE_MIN_DENSITY = 18;
+const SAMPLE_ACCEPT_GAIN = 1.20;
 
 let globalPulse = 0;
 
@@ -54,6 +71,12 @@ function setup() {
   buildScene();
   background(0);
   setupSoundUI();
+
+  // en modo debug, escondemos el botón de sonido para no distraer
+  if (DEBUG_VISUAL) {
+    const btn = document.getElementById("soundToggle");
+    if (btn) btn.style.display = "none";
+  }
 }
 
 function windowResized() {
@@ -67,9 +90,15 @@ function buildScene() {
   bridges = [];
   centerField = [];
 
-  // dos cuerpos de pie, separados con aire entre ellos, espejados
-  bodies.push(new FiberBody(width * 0.28, height * 0.52, false, 0.0));
-  bodies.push(new FiberBody(width * 0.72, height * 0.52, true,  PI * 0.7));
+  if (DEBUG_VISUAL) {
+    // un solo cuerpo en la mitad derecha. La mitad izquierda
+    // se reserva para mostrar el referente (miniatura).
+    bodies.push(new FiberBody(width * 0.72, height * 0.52, false, 0.0));
+  } else {
+    // dos cuerpos de pie, separados con aire entre ellos, espejados
+    bodies.push(new FiberBody(width * 0.28, height * 0.52, false, 0.0));
+    bodies.push(new FiberBody(width * 0.72, height * 0.52, true,  PI * 0.7));
+  }
 
   for (let i = 0; i < floor(BRIDGE_HEART * QUALITY); i++) {
     bridges.push(new BridgeStrand("heart", random(), random(1000)));
@@ -87,8 +116,18 @@ function draw() {
   background(0, BG_FADE);
 
   const t = millis() / 1000;
-  globalPulse = heartbeatPulse(t);
-  applyAudioPulse(globalPulse);
+  if (DEBUG_VISUAL) {
+    // pulso bajo y constante: el cuerpo respira muy poco
+    globalPulse = 0.10;
+  } else {
+    globalPulse = heartbeatPulse(t);
+    applyAudioPulse(globalPulse);
+  }
+
+  // fantasma de la referencia debajo del cuerpo (chequeo de alineación)
+  if (SHOW_REFERENCE_OVERLAY) {
+    drawReferenceOverlay();
+  }
 
   const prev = drawingContext.globalCompositeOperation;
   drawingContext.globalCompositeOperation = "lighter";
@@ -99,9 +138,14 @@ function draw() {
 
   drawingContext.globalCompositeOperation = prev;
 
-  drawHeartFocus();
-  drawVignette();
-  drawTitle();
+  if (DEBUG_VISUAL) {
+    drawDebugReferencePanel();
+    drawDebugTitle();
+  } else {
+    drawHeartFocus();
+    drawVignette();
+    drawTitle();
+  }
 }
 
 /* =========================================================
@@ -241,7 +285,7 @@ class FiberBody {
     const px = this.mask.pixels;
 
     let attempts = 0;
-    const maxAttempts = target * 60;
+    const maxAttempts = target * 80;
 
     while (this.fibers.length < target && attempts < maxAttempts) {
       attempts++;
@@ -251,12 +295,22 @@ class FiberBody {
       const r = px[idx];
       const g = px[idx + 1];
       const b = px[idx + 2];
-      const brightness = (r + g + b) / 3;
-      if (brightness < 14) continue;
-      // probabilidad proporcional al brillo
-      if (random(255) > brightness * 1.3) continue;
 
-      this.fibers.push(new Fiber(this, lx, ly, brightness, r, g, b));
+      // brightness y saturation, ambos en escala 0..255
+      const brightness = (r + g + b) / 3;
+      const maxC = Math.max(r, g, b);
+      const minC = Math.min(r, g, b);
+      // chroma simple, escalado a 0..255 → un rojo profundo (80,10,10)
+      // tiene saturación alta aunque sea oscuro
+      const saturation = maxC > 0 ? ((maxC - minC) / maxC) * 255 : 0;
+
+      // densidad combinada: brillo manda, pero la saturación rescata
+      // píxeles oscuros pero coloridos (las hebras de la referencia).
+      const density = brightness * 0.65 + saturation * 0.35;
+      if (density < SAMPLE_MIN_DENSITY) continue;
+      if (random(255) > density * SAMPLE_ACCEPT_GAIN) continue;
+
+      this.fibers.push(new Fiber(this, lx, ly, density, r, g, b));
     }
   }
 
@@ -312,27 +366,39 @@ class Fiber {
     this.ly = ly;
     this.seed = random(10000);
 
-    // color del píxel del referente, con leve boost de saturación / variación
-    const boost = 1.22;
-    this.r = constrain(pr * boost + random(-12, 12), 0, 255);
-    this.g = constrain(pg * boost + random(-12, 12), 0, 255);
-    this.b = constrain(pb * boost + random(-12, 12), 0, 255);
+    // Color del píxel del referente.
+    // En debug: SIN boost, jitter mínimo → fidelidad cromática absoluta.
+    // En modo artístico: leve boost para que la imagen "viva" un poco más.
+    const boost = DEBUG_VISUAL ? 1.00 : 1.22;
+    const jitter = DEBUG_VISUAL ? 6 : 12;
+    this.r = constrain(pr * boost + random(-jitter, jitter), 0, 255);
+    this.g = constrain(pg * boost + random(-jitter, jitter), 0, 255);
+    this.b = constrain(pb * boost + random(-jitter, jitter), 0, 255);
 
-    // Foco cardíaco MUY sutil: zona pequeña, boost mínimo. No domina.
+    // Foco cardíaco — solo se usa fuera de debug.
     const dHeart = dist(lx, ly, body.localHeart.x, body.localHeart.y);
     const heartR = min(body.bodyW, body.bodyH) * 0.07;
     this.isHeart = dHeart < heartR;
-    this.heartFalloff = this.isHeart ? (1 - dHeart / heartR) : 0;
-    // Antes: hasta 2.15x. Ahora: tope ~1.18x → no genera mancha.
+    this.heartFalloff = DEBUG_VISUAL ? 0 : (this.isHeart ? (1 - dHeart / heartR) : 0);
     this.alphaBoost = 1.0 + this.heartFalloff * 0.18;
 
-    // física — más suave y menos confeti
-    this.speed = random(0.22, 0.85);
-    this.pull = random(0.022, 0.046);
-    this.wander = random(0.25, 0.85);
-    this.weight = random(0.26, 0.95);
-    this.alpha = random(10, 30) * map(density, 30, 255, 0.55, 1.0);
-    this.maxDist = random(50, 115);
+    // Física y trazo: en debug los trazos son MÁS PEQUEÑOS y la alpha
+    // más baja (compensamos los 9000 fibers para no quemar pantalla).
+    if (DEBUG_VISUAL) {
+      this.speed = random(0.18, 0.65);
+      this.pull = random(0.024, 0.048);
+      this.wander = random(0.18, 0.55);
+      this.weight = random(0.22, 0.65);
+      this.alpha = random(6, 18) * map(density, 30, 255, 0.55, 1.0);
+      this.maxDist = random(40, 95);
+    } else {
+      this.speed = random(0.22, 0.85);
+      this.pull = random(0.022, 0.046);
+      this.wander = random(0.25, 0.85);
+      this.weight = random(0.26, 0.95);
+      this.alpha = random(10, 30) * map(density, 30, 255, 0.55, 1.0);
+      this.maxDist = random(50, 115);
+    }
 
     const w = body.toWorld(lx, ly);
     this.x = w.x + random(-2, 2);
@@ -340,9 +406,9 @@ class Fiber {
     this.vx = 0;
     this.vy = 0;
 
-    // historial más largo → trazo se lee como hebra, no como confeti
+    // historial → trazo de hebra
     this.history = [];
-    this.maxHistory = floor(random(9, 14));
+    this.maxHistory = floor(DEBUG_VISUAL ? random(7, 11) : random(9, 14));
     for (let i = 0; i < this.maxHistory; i++) {
       this.history.push({ x: this.x, y: this.y });
     }
@@ -681,5 +747,102 @@ function drawTitle() {
   textFont("monospace");
   textSize(13);
   text("A N A T O M Í A   D E   L A   D I S T A N C I A", width * 0.5, height - 42);
+  pop();
+}
+
+/* =========================================================
+   DEBUG / CALIBRACIÓN
+   - drawDebugReferencePanel: miniatura del referente (rotada
+     90° CW para ser comparable con el cuerpo generado).
+   - drawReferenceOverlay: fantasma del referente debajo del
+     cuerpo para chequear alineación exacta.
+   - drawDebugTitle: barra superior con etiquetas.
+========================================================= */
+
+function drawDebugReferencePanel() {
+  if (!bodies.length) return;
+  const body = bodies[0];
+
+  // misma altura y ancho que el cuerpo generado, posicionada en la
+  // mitad izquierda. Eje vertical de pie, igual que el cuerpo.
+  const cx = width * 0.25;
+  const cy = height * 0.52;
+  const tW = body.bodyW;
+  const tH = body.bodyH;
+
+  push();
+  drawingContext.globalCompositeOperation = "source-over";
+
+  // marco sutil para encuadrar la miniatura
+  noFill();
+  stroke(255, 22);
+  strokeWeight(1);
+  rect(cx - tW / 2 - 4, cy - tH / 2 - 4, tW + 8, tH + 8, 4);
+
+  // referente rotado 90° CW para que la cabeza quede arriba
+  push();
+  imageMode(CENTER);
+  translate(cx, cy);
+  rotate(HALF_PI);
+  image(bodyRefImg, 0, 0, tH, tW);
+  pop();
+
+  // etiquetas
+  noStroke();
+  fill(210, 205, 195, 150);
+  textAlign(CENTER, CENTER);
+  textFont("monospace");
+  textSize(11);
+  text("REFERENCIA", cx, cy - tH / 2 - 20);
+  text("GENERADO",  width * 0.72, cy - tH / 2 - 20);
+
+  // anclas de cabeza y corazón en la referencia (para debug)
+  const hx = HEAD_REL.x  * tW - tW / 2;
+  const hy = HEAD_REL.y  * tH - tH / 2;
+  const rx = HEART_REL.x * tW - tW / 2;
+  const ry = HEART_REL.y * tH - tH / 2;
+  fill(255, 255, 255, 80);
+  noStroke();
+  circle(cx + hx, cy + hy, 5);
+  fill(255, 120, 160, 110);
+  circle(cx + rx, cy + ry, 5);
+
+  pop();
+}
+
+function drawReferenceOverlay() {
+  // fantasma de la referencia debajo del cuerpo generado, alineado
+  // al sistema de coordenadas REAL del cuerpo (con su respiración).
+  push();
+  drawingContext.globalCompositeOperation = "source-over";
+  imageMode(CENTER);
+  for (const body of bodies) {
+    push();
+    // alineamos al centro local (sin respiración) para no introducir
+    // ruido al chequeo de calibración.
+    translate(body.cx, body.cy);
+    rotate(HALF_PI);
+    if (body.mirror) scale(1, -1);
+    tint(255, 38); // muy tenue
+    image(bodyRefImg, 0, 0, body.bodyH, body.bodyW);
+    noTint();
+    pop();
+  }
+  pop();
+}
+
+function drawDebugTitle() {
+  push();
+  drawingContext.globalCompositeOperation = "source-over";
+  noStroke();
+  fill(210, 205, 195, 110);
+  textAlign(CENTER, CENTER);
+  textFont("monospace");
+  textSize(12);
+  text(
+    "MODO DEBUG · CALIBRACIÓN DE FORMA · referencia ←→ cuerpo generado",
+    width * 0.5,
+    24
+  );
   pop();
 }
