@@ -1,5 +1,5 @@
 /*
- * Anatomía de la Distancia — v607
+ * Anatomía de la Distancia — v608
  *
  * IDEA CENTRAL
  * ------------
@@ -34,8 +34,8 @@ const SHOW_DEBUG_PARAMS = true;
 // ============ TIMELINE (sin audio) ============
 // Segundos de ovillo puro al principio, y duración de la transformación.
 // Después de HOLD_SECONDS + MORPH_SECONDS el cuerpo queda formado.
-const HOLD_SECONDS  = 3;
-const MORPH_SECONDS = 35;
+const HOLD_SECONDS  = 2;
+const MORPH_SECONDS = 32;
 
 // ============ ESCALONADO POR FIBRA ============
 // Ventana global donde puede caer el morphStart de cada fibra. La
@@ -61,29 +61,38 @@ let startMs       = 0;
 
 // ============ OVILLO ============
 const BALL_RADIUS         = 105;
-const BALL_ALPHA_MULT     = 2.4;
-const BALL_WEIGHT_MULT    = 1.35;
-const BALL_COLOR_BOOST    = 1.25;
-const BALL_MIN_ALPHA      = 110;
+const BALL_ALPHA_MULT     = 1.7;
+const BALL_WEIGHT_MULT    = 1.45;
+const BALL_COLOR_BOOST    = 1.0;
+const BALL_MIN_ALPHA      = 78;
 const BALL_ROT_SPEED      = 0.0030;
 const BALL_WANDER_AMP     = 2.4;
 const BALL_MAX_OFFSET     = 8.0;
 const BALL_TANGENTIAL_AMP = 14;
-const BALL_STRAND_MIN_LEN = 18;
-const BALL_STRAND_MAX_LEN = 42;
-const BALL_STRAND_CURVE   = 10;
+// Hebras del ovillo: visualmente son los "hilos" que se ven cruzados en
+// un ovillo real. Más largas y curvadas = más lectura como ovillo.
+const BALL_STRAND_MIN_LEN   = 34;
+const BALL_STRAND_MAX_LEN   = 88;
+const BALL_STRAND_CURVE     = 22;
+const BALL_STRAND_JITTER    = 0.65;
 
-// Paleta "lana": cada fibra del ovillo recibe un color basado en estos
-// valores con variación leve, para que se lea como hilo de lana sin
-// quedar plano.
-const WOOL_R = 232;
-const WOOL_G = 218;
-const WOOL_B = 188;
-const WOOL_VARIATION = 18;
+// Paleta "arena" para el ovillo. Cada fibra recibe un color basado en
+// estos valores con variación leve. Tonos cálidos terrosos, NO blanco
+// (porque el composite "lighter" suma alphas y blanqueaba todo).
+const WOOL_R = 198;
+const WOOL_G = 168;
+const WOOL_B = 118;
+const WOOL_VARIATION = 16;
 
-// Probabilidad de que una fibra sea "acento" (blanco, cian o magenta)
-// para sumar variedad al ovillo.
-const ACCENT_PROBABILITY = 0.06;
+// Acentos de tonos cercanos (crema, ocre, nuez) para sumar profundidad
+// al ovillo sin quebrar la paleta arena.
+const ACCENT_PROBABILITY = 0.10;
+const ACCENT_PALETTE = [
+  { r: 235, g: 210, b: 160 }, // crema claro
+  { r: 220, g: 175, b: 110 }, // ámbar arena
+  { r: 165, g: 125, b:  78 }, // nuez tostada
+  { r: 200, g: 150, b:  90 }, // miel terroso
+];
 
 // ============ MOVIMIENTO GLOBAL DEL CUERPO (solo al final) ============
 const BODY_SWAY_X_AMP    = 4.0;
@@ -450,20 +459,19 @@ class Fiber {
     this.spiralAngle = baseAngle;
     this.spiralR     = baseR;
 
-    // Color "lana" con variación leve por fibra para que el ovillo se
-    // lea como hilo (no como mancha plana). En estado cuerpo se mezcla
-    // con el color sampleado del png.
-    this.ballR = constrain(WOOL_R + random(-WOOL_VARIATION, WOOL_VARIATION), 150, 255);
-    this.ballG = constrain(WOOL_G + random(-WOOL_VARIATION, WOOL_VARIATION), 140, 255);
-    this.ballB = constrain(WOOL_B + random(-WOOL_VARIATION, WOOL_VARIATION), 120, 240);
+    // Color "arena" con variación leve por fibra. Cada fibra del ovillo
+    // arranca de un tono propio dentro de la paleta para que el ovillo
+    // se lea como hilo trenzado (no como mancha plana). En estado
+    // cuerpo se mezcla con el color sampleado del png.
+    this.ballR = constrain(WOOL_R + random(-WOOL_VARIATION, WOOL_VARIATION), 130, 240);
+    this.ballG = constrain(WOOL_G + random(-WOOL_VARIATION, WOOL_VARIATION), 110, 220);
+    this.ballB = constrain(WOOL_B + random(-WOOL_VARIATION, WOOL_VARIATION),  70, 180);
 
-    // Acento opcional (blanco / cian / magenta) para sumar variedad.
+    // Acento opcional dentro de la paleta arena (crema / ocre / nuez)
+    // para sumar profundidad sin meter blanco.
     this.accent = null;
     if (random() < ACCENT_PROBABILITY) {
-      const choice = floor(random(3));
-      if      (choice === 0) this.accent = { r: 255, g: 255, b: 255 };
-      else if (choice === 1) this.accent = { r: 130, g: 220, b: 255 };
-      else                   this.accent = { r: 255, g: 130, b: 220 };
+      this.accent = ACCENT_PALETTE[floor(random(ACCENT_PALETTE.length))];
     }
 
     this.seed   = random(10000);
@@ -471,7 +479,7 @@ class Fiber {
     this.alpha  = FIBER_ALPHA_BASE * map(this.density, 30, 255, 0.6, 1.0);
     this.strandLength = random(BALL_STRAND_MIN_LEN, BALL_STRAND_MAX_LEN);
     this.strandCurve  = random(-BALL_STRAND_CURVE, BALL_STRAND_CURVE);
-    this.strandJitter = random(-0.35, 0.35);
+    this.strandJitter = random(-BALL_STRAND_JITTER, BALL_STRAND_JITTER);
 
     // Ventana personal del morph. Las fibras de la PERIFERIA del ovillo
     // (radius alto) arrancan antes y las del CENTRO arrancan después,
