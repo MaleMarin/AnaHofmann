@@ -1,5 +1,5 @@
 /*
- * Anatomía de la Distancia — v601
+ * Anatomía de la Distancia — v602
  *
  * IDEA CENTRAL
  * ------------
@@ -52,6 +52,9 @@ const BALL_ROT_SPEED      = 0.0030;
 const BALL_WANDER_AMP     = 2.4;
 const BALL_MAX_OFFSET     = 8.0;
 const BALL_TANGENTIAL_AMP = 14;
+const BALL_STRAND_MIN_LEN = 18;
+const BALL_STRAND_MAX_LEN = 42;
+const BALL_STRAND_CURVE   = 10;
 
 // Color "lana" (boosted vs v500). Es el punto de partida; las fibras
 // derivan hacia el color real del cuerpo a medida que morph crece.
@@ -61,7 +64,7 @@ const WOOL_B = 188;
 
 // Probabilidad de que una fibra sea "acento" (blanco, cian o magenta)
 // para que el ovillo no se lea como mancha homogénea.
-const ACCENT_PROBABILITY = 0.06;
+const ACCENT_PROBABILITY = 0.10;
 
 // ============ MOVIMIENTO GLOBAL DEL CUERPO (solo al final) ============
 const BODY_SWAY_X_AMP    = 4.0;
@@ -88,12 +91,12 @@ const FIBER_ALPHA_MULT   = 0.95;
 const FIBER_WEIGHT_MULT  = 0.95;
 
 // ============ FIBRAS — MUESTREO ============
-const FIBERS_PER_BODY    = 1400;
+const FIBERS_PER_BODY    = 1800;
 const FIBER_DENSITY_MIN  = 32;
 const FIBER_ACCEPT_GAIN  = 1.0;
 const FIBER_ALPHA_BASE   = 22;
-const FIBER_WEIGHT_MIN   = 0.36;
-const FIBER_WEIGHT_MAX   = 1.10;
+const FIBER_WEIGHT_MIN   = 0.48;
+const FIBER_WEIGHT_MAX   = 1.35;
 const FIBER_HISTORY      = 8;
 
 // ============ VIAJE / RASTRO ============
@@ -155,6 +158,10 @@ function setupVoiceMedia() {
 
   voiceMedia.addEventListener("error", () => {
     console.warn("voz.mp4 no se pudo cargar.", voiceMedia.error);
+  });
+  voiceMedia.addEventListener("ended", () => {
+    morph = 1;
+    morphSmoothed = 1;
   });
 
   const btn = document.getElementById("soundToggle");
@@ -237,7 +244,12 @@ function draw() {
   const rawProgress = getRawProgress();
   const morphRaw = constrain(rawProgress, 0, 1);
   morph = smoothstep(0.03, 0.97, morphRaw);
-  morphSmoothed = lerp(morphSmoothed, morph, 0.045);
+  if (voiceMedia && voiceMedia.ended) {
+    morph = 1;
+    morphSmoothed = 1;
+  } else {
+    morphSmoothed = lerp(morphSmoothed, morph, 0.045);
+  }
 
   // Capa 1: cuerpo base con fade gradual (smoothstep), nunca al 100%.
   const bodyBaseAlpha = smoothstep(0.35, 0.95, morphSmoothed) * 0.65;
@@ -249,7 +261,7 @@ function draw() {
   for (const body of bodies) body.drawFibers();
   drawingContext.restore();
 
-  if (SHOW_DEBUG_PARAMS) drawDebugOverlay(rawProgress, bodyBaseAlpha, morphing);
+  if (SHOW_DEBUG_PARAMS) drawDebugOverlay(rawProgress, bodyBaseAlpha, isMorphingNow());
   drawTitle();
 }
 
@@ -460,6 +472,9 @@ class Fiber {
     this.seed   = random(10000);
     this.weight = random(FIBER_WEIGHT_MIN, FIBER_WEIGHT_MAX);
     this.alpha  = FIBER_ALPHA_BASE * map(density, 30, 255, 0.6, 1.0);
+    this.strandLength = random(BALL_STRAND_MIN_LEN, BALL_STRAND_MAX_LEN);
+    this.strandCurve  = random(-BALL_STRAND_CURVE, BALL_STRAND_CURVE);
+    this.strandJitter = random(-0.35, 0.35);
 
     // Posición inicial = anchor ovillo en mundo.
     const w = body.toWorld(this.anchorBallX, this.anchorBallY, 0);
@@ -576,6 +591,31 @@ class Fiber {
     const last = this.history[this.history.length - 1];
     curveVertex(last.x, last.y);
     endShape();
+
+    // En morph bajo, la historia física todavía es corta: dibujar una
+    // hebra tangencial explícita evita que el ovillo se lea como puntos.
+    if (bf > 0.03) {
+      const strandAlpha = constrain(alpha * (0.55 + bf * 0.55), 0, 255);
+      const strandWeight = max(this.weight * weightMul * 0.82, MORPH_LINE_WEIGHT);
+      const wobble = Math.sin(frameCount * 0.018 + this.seed) * 0.28;
+      const angle = this.spiralAngle + HALF_PI + this.strandJitter + wobble;
+      const len = this.strandLength * bf;
+      const dx = Math.cos(angle) * len * 0.5;
+      const dy = Math.sin(angle) * len * 0.5;
+      const cx = Math.cos(angle + HALF_PI) * this.strandCurve * bf;
+      const cy = Math.sin(angle + HALF_PI) * this.strandCurve * bf;
+
+      stroke(r, g, b, strandAlpha);
+      strokeWeight(strandWeight);
+      noFill();
+      beginShape();
+      curveVertex(this.x - dx, this.y - dy);
+      curveVertex(this.x - dx, this.y - dy);
+      curveVertex(this.x + cx, this.y + cy);
+      curveVertex(this.x + dx, this.y + dy);
+      curveVertex(this.x + dx, this.y + dy);
+      endShape();
+    }
   }
 }
 
