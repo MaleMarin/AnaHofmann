@@ -1,5 +1,5 @@
 /*
- * Anatomía de la Distancia — v608
+ * Anatomía de la Distancia — v609
  *
  * IDEA CENTRAL
  * ------------
@@ -61,37 +61,37 @@ let startMs       = 0;
 
 // ============ OVILLO ============
 const BALL_RADIUS         = 105;
-const BALL_ALPHA_MULT     = 1.7;
-const BALL_WEIGHT_MULT    = 1.45;
+const BALL_ALPHA_MULT     = 1.0;
+const BALL_WEIGHT_MULT    = 0.95;
 const BALL_COLOR_BOOST    = 1.0;
-const BALL_MIN_ALPHA      = 78;
+const BALL_MIN_ALPHA      = 38;
 const BALL_ROT_SPEED      = 0.0030;
 const BALL_WANDER_AMP     = 2.4;
 const BALL_MAX_OFFSET     = 8.0;
-const BALL_TANGENTIAL_AMP = 14;
-// Hebras del ovillo: visualmente son los "hilos" que se ven cruzados en
-// un ovillo real. Más largas y curvadas = más lectura como ovillo.
-const BALL_STRAND_MIN_LEN   = 34;
-const BALL_STRAND_MAX_LEN   = 88;
-const BALL_STRAND_CURVE     = 22;
-const BALL_STRAND_JITTER    = 0.65;
+const BALL_TANGENTIAL_AMP = 12;
+// Hebras del ovillo: livianas, más cortas que en v608.
+const BALL_STRAND_MIN_LEN   = 22;
+const BALL_STRAND_MAX_LEN   = 58;
+const BALL_STRAND_CURVE     = 14;
+const BALL_STRAND_JITTER    = 0.55;
+const BALL_STRAND_ALPHA_MULT = 0.45;
 
-// Paleta "arena" para el ovillo. Cada fibra recibe un color basado en
-// estos valores con variación leve. Tonos cálidos terrosos, NO blanco
-// (porque el composite "lighter" suma alphas y blanqueaba todo).
-const WOOL_R = 198;
-const WOOL_G = 168;
-const WOOL_B = 118;
-const WOOL_VARIATION = 16;
+// Paleta "arena claro": tono único para TODA la pieza (ovillo + figura).
+// Cada fibra recibe una variación leve para que el conjunto se lea como
+// hilo, no como una mancha plana. NO usamos los colores sampleados del
+// png del cuerpo: la figura humana hereda este mismo color.
+const WOOL_R = 220;
+const WOOL_G = 192;
+const WOOL_B = 142;
+const WOOL_VARIATION = 12;
 
-// Acentos de tonos cercanos (crema, ocre, nuez) para sumar profundidad
-// al ovillo sin quebrar la paleta arena.
-const ACCENT_PROBABILITY = 0.10;
+// Acentos en la misma paleta (todos arena), opcionales y muy livianos.
+const ACCENT_PROBABILITY = 0.06;
 const ACCENT_PALETTE = [
-  { r: 235, g: 210, b: 160 }, // crema claro
-  { r: 220, g: 175, b: 110 }, // ámbar arena
-  { r: 165, g: 125, b:  78 }, // nuez tostada
-  { r: 200, g: 150, b:  90 }, // miel terroso
+  { r: 238, g: 215, b: 168 }, // arena casi crema
+  { r: 228, g: 198, b: 148 }, // arena medio
+  { r: 205, g: 170, b: 112 }, // arena tostado
+  { r: 245, g: 222, b: 178 }, // arena muy claro
 ];
 
 // ============ MOVIMIENTO GLOBAL DEL CUERPO (solo al final) ============
@@ -102,29 +102,22 @@ const BODY_BREATH_SCALE_X = 0.0060;
 const BODY_BREATH_SCALE_Y = 0.0100;
 const BODY_BREATH_SPEED   = 0.0120;
 
-// ============ WARP POR SLICES ============
-const WARP_SLICE_STEP    = 12;
-const WARP_X_AMP         = 3.5;
-const WARP_Y_AMP         = 1.0;
-const WARP_SPEED         = 0.0045;
-const WARP_SPATIAL_SCALE = 0.08;
-
 // ============ FIBRAS — DINÁMICA ============
 const FIBER_NOISE_SPEED  = 0.0035;
 const FIBER_WANDER_AMP   = 1.4;
 const FIBER_ANCHOR_PULL  = 0.06;
 const FIBER_DAMPING      = 0.88;
 const FIBER_MAX_OFFSET   = 4.0;
-const FIBER_ALPHA_MULT   = 0.95;
-const FIBER_WEIGHT_MULT  = 0.95;
+const FIBER_ALPHA_MULT   = 0.78;
+const FIBER_WEIGHT_MULT  = 0.82;
 
 // ============ FIBRAS — MUESTREO ============
-const FIBERS_PER_BODY    = 1800;
+const FIBERS_PER_BODY    = 1100;
 const FIBER_DENSITY_MIN  = 32;
 const FIBER_ACCEPT_GAIN  = 1.0;
-const FIBER_ALPHA_BASE   = 22;
-const FIBER_WEIGHT_MIN   = 0.48;
-const FIBER_WEIGHT_MAX   = 1.35;
+const FIBER_ALPHA_BASE   = 13;
+const FIBER_WEIGHT_MIN   = 0.28;
+const FIBER_WEIGHT_MAX   = 0.78;
 const FIBER_HISTORY      = 8;
 
 // ============ VIAJE / RASTRO ============
@@ -249,17 +242,15 @@ function draw() {
   morph = smoothstep(0.03, 0.97, morphRaw);
   morphSmoothed = lerp(morphSmoothed, morph, 0.045);
 
-  // Capa 1: cuerpo base con fade gradual (smoothstep), nunca al 100%.
-  const bodyBaseAlpha = smoothstep(0.35, 0.95, morphSmoothed) * 0.65;
-  for (const body of bodies) body.drawBase(bodyBaseAlpha);
-
-  // Capa 2: fibras (composite "lighter" para que sumen sobre el negro).
+  // Capa única: fibras (composite "lighter" para que sumen sobre el negro).
+  // No se dibuja capa base del cuerpo: toda la pieza queda en la paleta
+  // arena claro y la figura humana se forma sólo con fibras.
   drawingContext.save();
   drawingContext.globalCompositeOperation = "lighter";
   for (const body of bodies) body.drawFibers();
   drawingContext.restore();
 
-  if (SHOW_DEBUG_PARAMS) drawDebugOverlay(rawProgress, bodyBaseAlpha, isMorphingNow());
+  if (SHOW_DEBUG_PARAMS) drawDebugOverlay(rawProgress, isMorphingNow());
   drawTitle();
 }
 
@@ -360,59 +351,8 @@ class AnimatedBody {
     return { x: this.cx + swayX + ox, y: this.cy + swayY + oy };
   }
 
-  // Cuerpo base: fade continuo. Sin umbral duro.
-  drawBase(bodyBaseAlpha) {
-    if (bodyBaseAlpha <= 0.001) return;
-
-    const motionStrength = bodyMotionStrength();
-    const m = getBodyMotion(frameCount + this.phase * 60);
-
-    const drawW = this.bodyW * lerp(1, m.scaleX, motionStrength);
-    const drawH = this.bodyH * lerp(1, m.scaleY, motionStrength);
-
-    const ctx = drawingContext;
-    ctx.save();
-    ctx.globalAlpha = bodyBaseAlpha;
-
-    ctx.translate(this.cx + m.swayX * motionStrength,
-                  this.cy + m.swayY * motionStrength);
-    ctx.translate(-drawW * 0.5, -drawH * 0.5);
-
-    const masterEl = this.master.elt || this.master.canvas;
-    const mw = this.master.width;
-    const mh = this.master.height;
-
-    const slices = max(1, floor(drawH / WARP_SLICE_STEP));
-    const sliceSrcH = mh / slices;
-    const sliceDstStep = drawH / slices;
-    const sliceDstH = sliceDstStep + 1.0;
-
-    const warpAmpX = WARP_X_AMP * motionStrength;
-    const warpAmpY = WARP_Y_AMP * motionStrength;
-
-    for (let i = 0; i < slices; i++) {
-      const sy = i * sliceSrcH;
-      const dy = i * sliceDstStep;
-
-      const n = noise(i * WARP_SPATIAL_SCALE,
-                      frameCount * WARP_SPEED + this.phase * 0.5);
-      const dx = map(n, 0, 1, -warpAmpX, warpAmpX);
-
-      const wave = Math.sin(frameCount * WARP_SPEED * 1.3 + i * 0.12 + this.phase);
-      const dyOff = wave * warpAmpY;
-
-      ctx.drawImage(
-        masterEl,
-        0, sy, mw, sliceSrcH,
-        dx, dy + dyOff, drawW, sliceDstH
-      );
-    }
-
-    ctx.restore();
-  }
-
-  // Capa base del cuerpo terminada arriba. Las fibras se dibujan a
-  // continuación.
+  // Capa base del cuerpo: deshabilitada en v609. La figura humana se
+  // forma sólo con fibras color arena claro.
 
   drawFibers() {
     for (const f of this.fibers) {
@@ -436,10 +376,12 @@ class Fiber {
     this.anchorBodyX = bodySample.lx;
     this.anchorBodyY = bodySample.ly;
 
-    // Color del cuerpo (sampleado del png).
-    this.r = bodySample.r;
-    this.g = bodySample.g;
-    this.b = bodySample.b;
+    // Color del cuerpo: NO usamos el sample del png. Toda la pieza
+    // (ovillo y figura humana) usa la paleta "arena claro" con leve
+    // variación por fibra para que se lea como hilo.
+    this.r = constrain(WOOL_R + random(-WOOL_VARIATION, WOOL_VARIATION), 130, 245);
+    this.g = constrain(WOOL_G + random(-WOOL_VARIATION, WOOL_VARIATION), 110, 225);
+    this.b = constrain(WOOL_B + random(-WOOL_VARIATION, WOOL_VARIATION),  60, 200);
 
     // Anchor ovillo: espiral programática centrada en (bodyW/2, bodyH/2).
     // El radio crece con el índice (sqrt para distribución uniforme en el
@@ -459,13 +401,12 @@ class Fiber {
     this.spiralAngle = baseAngle;
     this.spiralR     = baseR;
 
-    // Color "arena" con variación leve por fibra. Cada fibra del ovillo
-    // arranca de un tono propio dentro de la paleta para que el ovillo
-    // se lea como hilo trenzado (no como mancha plana). En estado
-    // cuerpo se mezcla con el color sampleado del png.
-    this.ballR = constrain(WOOL_R + random(-WOOL_VARIATION, WOOL_VARIATION), 130, 240);
-    this.ballG = constrain(WOOL_G + random(-WOOL_VARIATION, WOOL_VARIATION), 110, 220);
-    this.ballB = constrain(WOOL_B + random(-WOOL_VARIATION, WOOL_VARIATION),  70, 180);
+    // Variación adicional para el estado ovillo (mismo tono arena con
+    // jitter independiente). El lerp entre ballR/G/B y r/g/b durante el
+    // morph produce micro-tonalidades dentro de la misma paleta.
+    this.ballR = constrain(WOOL_R + random(-WOOL_VARIATION, WOOL_VARIATION), 130, 245);
+    this.ballG = constrain(WOOL_G + random(-WOOL_VARIATION, WOOL_VARIATION), 110, 225);
+    this.ballB = constrain(WOOL_B + random(-WOOL_VARIATION, WOOL_VARIATION),  60, 200);
 
     // Acento opcional dentro de la paleta arena (crema / ocre / nuez)
     // para sumar profundidad sin meter blanco.
@@ -634,8 +575,8 @@ class Fiber {
     // En morph bajo, la historia física todavía es corta: dibujar una
     // hebra tangencial explícita evita que el ovillo se lea como puntos.
     if (bf > 0.03) {
-      const strandAlpha = constrain(alpha * (0.55 + bf * 0.55), 0, 255);
-      const strandWeight = max(this.weight * weightMul * 0.82, MORPH_LINE_WEIGHT);
+      const strandAlpha = constrain(alpha * (BALL_STRAND_ALPHA_MULT + bf * 0.30), 0, 255);
+      const strandWeight = max(this.weight * weightMul * 0.78, MORPH_LINE_WEIGHT);
       const wobble = Math.sin(frameCount * 0.018 + this.seed) * 0.28;
       const angle = this.spiralAngle + HALF_PI + this.strandJitter + wobble;
       const len = this.strandLength * bf;
@@ -697,13 +638,13 @@ class Fiber {
    DEBUG / TÍTULO
 ========================================================= */
 
-function drawDebugOverlay(rawProgress, bodyBaseAlpha, morphing) {
+function drawDebugOverlay(rawProgress, morphing) {
   push();
   drawingContext.globalCompositeOperation = "source-over";
 
   noStroke();
   fill(0, 0, 0, 140);
-  rect(12, 12, 230, 124, 6);
+  rect(12, 12, 230, 110, 6);
 
   textAlign(LEFT, TOP);
   textFont("monospace");
@@ -721,7 +662,6 @@ function drawDebugOverlay(rawProgress, bodyBaseAlpha, morphing) {
   text(`raw:       ${rawProgress.toFixed(3)}`,       x, y); y += 14;
   text(`morph:     ${morph.toFixed(3)}`,             x, y); y += 14;
   text(`smooth:    ${morphSmoothed.toFixed(3)}`,     x, y); y += 14;
-  text(`bodyAlpha: ${bodyBaseAlpha.toFixed(3)}`,     x, y); y += 14;
   text(`morphing:  ${morphing ? "true" : "false"}`,  x, y); y += 14;
 
   fill(150, 200, 255, 200);
