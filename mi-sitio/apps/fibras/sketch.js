@@ -1,21 +1,14 @@
 /*
- * Anatomía de la Distancia — v606
+ * Anatomía de la Distancia — v607
  *
  * IDEA CENTRAL
  * ------------
- * El cuerpo no aparece de golpe. Primero existe un OVILLO DE LANA real
- * (ovillo-ref.png), hecho íntegramente de fibras, que se desamarra y
- * viaja hacia la silueta del cuerpo (cuerpo-ref.png). La transformación
- * es un único sistema de fibras con dos anclas: anchorBall (sample del
- * ovillo) y anchorBody (sample del cuerpo). El anchor activo es
- * lerp(ball, body, personalMorph).
- *
- * IMÁGENES BASE
- *   - ovillo-ref.png → muestreo de POSICIÓN y COLOR del estado ovillo.
- *   - cuerpo-ref.png → muestreo de POSICIÓN y COLOR del estado cuerpo.
- *   - El ovillo se renderiza también como capa base con fade out a
- *     medida que las fibras empiezan a viajar.
- *   - El cuerpo se renderiza como capa base con fade in al final.
+ * El cuerpo no aparece de golpe. Primero existe un OVILLO DE LANA hecho
+ * íntegramente de fibras (espiral + hebras tangenciales con paleta de
+ * lana), que se desamarra y viaja hacia la silueta del cuerpo
+ * (cuerpo-ref.png). La transformación es un único sistema de fibras con
+ * dos anclas: anchorBall (espiral programática) y anchorBody (sample
+ * del png del cuerpo). El anchor activo es lerp(ball, body, personalMorph).
  *
  * MORPH ESCALONADO POR FIBRA
  *   - Cada fibra recibe morphStart + morphSpan al construirse.
@@ -68,7 +61,6 @@ let startMs       = 0;
 
 // ============ OVILLO ============
 const BALL_RADIUS         = 105;
-const BALL_DIAMETER_MULT  = 2.15;  // tamaño del bounding box del ovillo
 const BALL_ALPHA_MULT     = 2.4;
 const BALL_WEIGHT_MULT    = 1.35;
 const BALL_COLOR_BOOST    = 1.25;
@@ -76,19 +68,22 @@ const BALL_MIN_ALPHA      = 110;
 const BALL_ROT_SPEED      = 0.0030;
 const BALL_WANDER_AMP     = 2.4;
 const BALL_MAX_OFFSET     = 8.0;
+const BALL_TANGENTIAL_AMP = 14;
 const BALL_STRAND_MIN_LEN = 18;
 const BALL_STRAND_MAX_LEN = 42;
 const BALL_STRAND_CURVE   = 10;
 
-// Capa base del ovillo: la imagen ovillo-ref.png se renderiza detrás de
-// las fibras y se desvanece a medida que el morph empieza.
-const OVILLO_BASE_ALPHA_MAX = 0.85;
-const OVILLO_BASE_FADE_IN   = 0.05;
-const OVILLO_BASE_FADE_OUT  = 0.45;
+// Paleta "lana": cada fibra del ovillo recibe un color basado en estos
+// valores con variación leve, para que se lea como hilo de lana sin
+// quedar plano.
+const WOOL_R = 232;
+const WOOL_G = 218;
+const WOOL_B = 188;
+const WOOL_VARIATION = 18;
 
 // Probabilidad de que una fibra sea "acento" (blanco, cian o magenta)
-// para sumar variedad por encima del color real del ovillo.
-const ACCENT_PROBABILITY = 0.05;
+// para sumar variedad al ovillo.
+const ACCENT_PROBABILITY = 0.06;
 
 // ============ MOVIMIENTO GLOBAL DEL CUERPO (solo al final) ============
 const BODY_SWAY_X_AMP    = 4.0;
@@ -132,7 +127,6 @@ const MORPH_HIGH_LIMIT        = 0.85;
 
 // ============ ESTADO ============
 let bodyRefImg;
-let ovilloRefImg;
 let bodies = [];
 
 /* =========================================================
@@ -141,7 +135,6 @@ let bodies = [];
 
 function preload() {
   bodyRefImg = loadImage("/apps/fibras/assets/cuerpo-ref.png");
-  ovilloRefImg = loadImage("/apps/fibras/assets/ovillo-ref.png");
 }
 
 function setup() {
@@ -198,8 +191,8 @@ function smoothstep(edge0, edge1, x) {
   return t * t * (3 - 2 * t);
 }
 
-// Reloj interno: 5 s de ovillo, después la transformación avanza
-// linealmente durante MORPH_SECONDS y se queda en 1.
+// Reloj interno: HOLD_SECONDS de ovillo, después la transformación
+// avanza linealmente durante MORPH_SECONDS y se queda en 1.
 function getElapsedSeconds() {
   return (millis() - startMs) / 1000;
 }
@@ -247,23 +240,17 @@ function draw() {
   morph = smoothstep(0.03, 0.97, morphRaw);
   morphSmoothed = lerp(morphSmoothed, morph, 0.045);
 
-  // Capa 1: ovillo base (imagen real), con fade out que arranca apenas
-  // empieza el morph para ceder protagonismo a las fibras.
-  const ovilloBaseAlpha = (1 - smoothstep(OVILLO_BASE_FADE_IN, OVILLO_BASE_FADE_OUT, morphSmoothed))
-                          * OVILLO_BASE_ALPHA_MAX;
-  for (const body of bodies) body.drawBallBase(ovilloBaseAlpha);
-
-  // Capa 2: cuerpo base con fade gradual (smoothstep), nunca al 100%.
+  // Capa 1: cuerpo base con fade gradual (smoothstep), nunca al 100%.
   const bodyBaseAlpha = smoothstep(0.35, 0.95, morphSmoothed) * 0.65;
   for (const body of bodies) body.drawBase(bodyBaseAlpha);
 
-  // Capa 3: fibras (composite "lighter" para que sumen sobre el negro).
+  // Capa 2: fibras (composite "lighter" para que sumen sobre el negro).
   drawingContext.save();
   drawingContext.globalCompositeOperation = "lighter";
   for (const body of bodies) body.drawFibers();
   drawingContext.restore();
 
-  if (SHOW_DEBUG_PARAMS) drawDebugOverlay(rawProgress, bodyBaseAlpha, ovilloBaseAlpha, isMorphingNow());
+  if (SHOW_DEBUG_PARAMS) drawDebugOverlay(rawProgress, bodyBaseAlpha, isMorphingNow());
   drawTitle();
 }
 
@@ -287,20 +274,7 @@ class AnimatedBody {
     this.bodyW = w;
     this.bodyH = h;
 
-    // Bounding box del ovillo, centrado en (cx, cy). Se calcula a partir
-    // del aspecto real de ovillo-ref.png para no deformar la imagen.
-    const ovAspect = ovilloRefImg.height / ovilloRefImg.width;
-    const targetDiameter = BALL_RADIUS * BALL_DIAMETER_MULT;
-    if (ovAspect >= 1) {
-      this.ballH = targetDiameter;
-      this.ballW = this.ballH / ovAspect;
-    } else {
-      this.ballW = targetDiameter;
-      this.ballH = this.ballW * ovAspect;
-    }
-
     this.buildMaster();
-    this.buildBallMaster();
     this.buildFibers();
   }
 
@@ -323,44 +297,8 @@ class AnimatedBody {
     this.master = g;
   }
 
-  // Pre-render del ovillo. Se usa para muestrear posiciones+colores
-  // de las fibras en estado ovillo y para dibujar la capa base con
-  // fade out durante el inicio.
-  buildBallMaster() {
-    const g = createGraphics(floor(this.ballW), floor(this.ballH));
-    g.pixelDensity(1);
-    g.clear();
-    g.imageMode(CORNER);
-    g.image(ovilloRefImg, 0, 0, g.width, g.height);
-    g.loadPixels();
-    this.ballMaster = g;
-  }
-
-  // Sample en el master del ovillo. Devuelve { lx, ly, r, g, b } en
-  // coordenadas locales del ballMaster (esquina sup. izq.).
-  sampleBallAnchor() {
-    const px = this.ballMaster.pixels;
-    const bw = this.ballMaster.width;
-    const bh = this.ballMaster.height;
-    for (let attempt = 0; attempt < 80; attempt++) {
-      const lx = floor(random(bw));
-      const ly = floor(random(bh));
-      const idx = (ly * bw + lx) * 4;
-      const r = px[idx];
-      const g = px[idx + 1];
-      const b = px[idx + 2];
-      const a = px[idx + 3];
-      if (a < 8) continue;
-      const bright = (r + g + b) / 3;
-      if (bright < 18) continue;
-      return { lx, ly, r, g, b };
-    }
-    return { lx: bw * 0.5, ly: bh * 0.5, r: 220, g: 200, b: 170 };
-  }
-
-  // Muestra puntos del cuerpo y los empareja, por índice, con anclas
-  // del ovillo sampleadas de ovillo-ref.png. Cada fibra tiene
-  // OBLIGATORIAMENTE anchorBall + anchorBody (mismo objeto).
+  // Muestra puntos del cuerpo. Cada fibra resultante construye su
+  // ancla del ovillo programáticamente (espiral) en su constructor.
   buildFibers() {
     this.fibers = [];
     const px = this.master.pixels;
@@ -397,8 +335,7 @@ class AnimatedBody {
     const total = samples.length;
     for (let i = 0; i < total; i++) {
       const s = samples[i];
-      const ballSample = this.sampleBallAnchor();
-      this.fibers.push(new Fiber(this, i, total, s, ballSample));
+      this.fibers.push(new Fiber(this, i, total, s));
     }
   }
 
@@ -465,23 +402,8 @@ class AnimatedBody {
     ctx.restore();
   }
 
-  // Capa base del ovillo: dibuja la imagen del ovillo centrada en
-  // (cx, cy). Se desvanece a medida que el morph empieza para que las
-  // fibras tomen el protagonismo.
-  drawBallBase(ovilloBaseAlpha) {
-    if (ovilloBaseAlpha <= 0.001) return;
-    const ctx = drawingContext;
-    ctx.save();
-    ctx.globalAlpha = ovilloBaseAlpha;
-    ctx.translate(this.cx - this.ballW * 0.5, this.cy - this.ballH * 0.5);
-    const ballEl = this.ballMaster.elt || this.ballMaster.canvas;
-    ctx.drawImage(
-      ballEl,
-      0, 0, this.ballMaster.width, this.ballMaster.height,
-      0, 0, this.ballW, this.ballH
-    );
-    ctx.restore();
-  }
+  // Capa base del cuerpo terminada arriba. Las fibras se dibujan a
+  // continuación.
 
   drawFibers() {
     for (const f of this.fibers) {
@@ -496,7 +418,7 @@ class AnimatedBody {
 ========================================================= */
 
 class Fiber {
-  constructor(body, index, total, bodySample, ballSample) {
+  constructor(body, index, total, bodySample) {
     this.body = body;
     this.index = index;
     this.density = bodySample.density;
@@ -510,30 +432,32 @@ class Fiber {
     this.g = bodySample.g;
     this.b = bodySample.b;
 
-    // Anchor ovillo: sample del png del ovillo, traducido para que el
-    // bounding box del ballMaster quede centrado en (bodyW/2, bodyH/2).
+    // Anchor ovillo: espiral programática centrada en (bodyW/2, bodyH/2).
+    // El radio crece con el índice (sqrt para distribución uniforme en el
+    // disco) y el ángulo avanza en pasos pequeños para sumar capas.
+    const totalForSpiral = max(total, 1);
+    const baseAngle = index * 0.18 + random(-0.25, 0.25);
+    const baseR = BALL_RADIUS * sqrt(index / totalForSpiral) * random(0.75, 1.12);
     const cx = body.bodyW * 0.5;
     const cy = body.bodyH * 0.5;
-    const ballOffsetX = cx - body.ballW * 0.5;
-    const ballOffsetY = cy - body.ballH * 0.5;
-    this.anchorBallX = ballOffsetX + ballSample.lx;
-    this.anchorBallY = ballOffsetY + ballSample.ly;
 
-    // Color del ovillo (sampleado del png) — punto de partida de cada
-    // fibra cuando el ovillo todavía está intacto.
-    this.ballR = ballSample.r;
-    this.ballG = ballSample.g;
-    this.ballB = ballSample.b;
+    const tang = random(-0.5, 0.5);
+    const tangX = -Math.sin(baseAngle) * BALL_TANGENTIAL_AMP * tang;
+    const tangY =  Math.cos(baseAngle) * BALL_TANGENTIAL_AMP * tang;
 
-    // Parámetros radiales: distancia y ángulo respecto al centro del
-    // ovillo, derivados del sample. Sirven para el drift rotacional y
-    // para el escalonado del morph.
-    const dx = this.anchorBallX - cx;
-    const dy = this.anchorBallY - cy;
-    this.spiralR     = Math.sqrt(dx * dx + dy * dy);
-    this.spiralAngle = Math.atan2(dy, dx);
+    this.anchorBallX = cx + Math.cos(baseAngle) * baseR + tangX;
+    this.anchorBallY = cy + Math.sin(baseAngle) * baseR + tangY;
+    this.spiralAngle = baseAngle;
+    this.spiralR     = baseR;
 
-    // Acento opcional para variedad encima del color real del ovillo.
+    // Color "lana" con variación leve por fibra para que el ovillo se
+    // lea como hilo (no como mancha plana). En estado cuerpo se mezcla
+    // con el color sampleado del png.
+    this.ballR = constrain(WOOL_R + random(-WOOL_VARIATION, WOOL_VARIATION), 150, 255);
+    this.ballG = constrain(WOOL_G + random(-WOOL_VARIATION, WOOL_VARIATION), 140, 255);
+    this.ballB = constrain(WOOL_B + random(-WOOL_VARIATION, WOOL_VARIATION), 120, 240);
+
+    // Acento opcional (blanco / cian / magenta) para sumar variedad.
     this.accent = null;
     if (random() < ACCENT_PROBABILITY) {
       const choice = floor(random(3));
@@ -765,13 +689,13 @@ class Fiber {
    DEBUG / TÍTULO
 ========================================================= */
 
-function drawDebugOverlay(rawProgress, bodyBaseAlpha, ovilloBaseAlpha, morphing) {
+function drawDebugOverlay(rawProgress, bodyBaseAlpha, morphing) {
   push();
   drawingContext.globalCompositeOperation = "source-over";
 
   noStroke();
   fill(0, 0, 0, 140);
-  rect(12, 12, 240, 138, 6);
+  rect(12, 12, 230, 124, 6);
 
   textAlign(LEFT, TOP);
   textFont("monospace");
@@ -789,7 +713,6 @@ function drawDebugOverlay(rawProgress, bodyBaseAlpha, ovilloBaseAlpha, morphing)
   text(`raw:       ${rawProgress.toFixed(3)}`,       x, y); y += 14;
   text(`morph:     ${morph.toFixed(3)}`,             x, y); y += 14;
   text(`smooth:    ${morphSmoothed.toFixed(3)}`,     x, y); y += 14;
-  text(`ballAlpha: ${ovilloBaseAlpha.toFixed(3)}`,   x, y); y += 14;
   text(`bodyAlpha: ${bodyBaseAlpha.toFixed(3)}`,     x, y); y += 14;
   text(`morphing:  ${morphing ? "true" : "false"}`,  x, y); y += 14;
 
