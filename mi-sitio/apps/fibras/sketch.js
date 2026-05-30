@@ -1,5 +1,5 @@
 /*
- * Anatomía de la Distancia — v604
+ * Anatomía de la Distancia — v605
  *
  * IDEA CENTRAL
  * ------------
@@ -7,30 +7,24 @@
  * íntegramente de fibras, que se desamarra y viaja hacia la silueta del
  * cuerpo (cuerpo-ref.png). La transformación es un único sistema de
  * fibras con dos anclas: anchorBall (espiral) y anchorBody (sample del
- * png). El anchor activo es lerp(ball, body, morphSmoothed).
+ * png). El anchor activo es lerp(ball, body, personalMorph).
  *
- * MORPH
+ * MORPH ESCALONADO POR FIBRA
+ *   - Cada fibra recibe morphStart + morphSpan al construirse.
+ *   - Las fibras de la PERIFERIA del ovillo arrancan antes; las del
+ *     CENTRO arrancan después. Eso hace que el ovillo se desovillé desde
+ *     afuera hacia adentro, como una madeja real.
+ *   - Durante el viaje (transit), cada fibra arrastra una hebra hacia
+ *     su anchor del ovillo: se ve literalmente que la figura humana
+ *     "viene" del ovillo.
+ *
+ * MORPH GLOBAL
  *   - Línea de tiempo interna (sin audio):
  *       0..HOLD_SECONDS         → ovillo puro (morph = 0).
  *       HOLD_SECONDS..HOLD+MORPH→ transformación continua (0 → 1).
  *       después                  → cuerpo formado (morph = 1).
  *   - smoothstep(0.03, 0.97) para evitar saltos en bordes.
  *   - morphSmoothed = lerp(morphSmoothed, morph, 0.045) para suavizar.
- *
- * OVILLO VISIBLE DESDE EL INICIO
- *   - Las fibras tienen alpha mínimo alto (BALL_MIN_ALPHA) cuando
- *     morphSmoothed ≈ 0.
- *   - Se distribuyen como espiral (i / totalFibers).
- *   - El color de lana se boostea y algunas fibras llevan acentos
- *     (blanco, cian, magenta) para que el ovillo tenga presencia.
- *
- * VIAJE VISIBLE
- *   - Durante 0.10 < morphSmoothed < 0.85 las fibras dejan más rastro:
- *     trail más largo, alpha multiplicada, fondo borra menos.
- *
- * CUERPO BASE
- *   - Aparece con fade gradual usando smoothstep(0.35, 0.95) * 0.65.
- *   - Nunca al 100%: las fibras siguen siendo el medio principal.
  */
 
 // ============ FLAGS ============
@@ -40,7 +34,24 @@ const SHOW_DEBUG_PARAMS = true;
 // Segundos de ovillo puro al principio, y duración de la transformación.
 // Después de HOLD_SECONDS + MORPH_SECONDS el cuerpo queda formado.
 const HOLD_SECONDS  = 5;
-const MORPH_SECONDS = 25;
+const MORPH_SECONDS = 35;
+
+// ============ ESCALONADO POR FIBRA ============
+// Ventana global donde puede caer el morphStart de cada fibra. La
+// periferia del ovillo apunta a 0 (arranca antes); el centro apunta a
+// MORPH_STAGGER_RANGE (arranca más tarde). El span de cada fibra (cuán
+// rápido completa su propia transición) cae entre MIN y MAX.
+const MORPH_STAGGER_RANGE = 0.55;
+const MORPH_STAGGER_JITTER = 0.12;
+const MORPH_FIBER_SPAN_MIN = 0.28;
+const MORPH_FIBER_SPAN_MAX = 0.50;
+
+// Hebra de "ovillo en viaje": cada fibra dibuja una línea que apunta de
+// vuelta hacia su anchor del ovillo durante su propia transición. Eso
+// hace evidente que la figura humana viene del ovillo.
+const TRANSIT_TRAIL_MAX_LEN  = 110;
+const TRANSIT_TRAIL_FRACTION = 0.42;
+const TRANSIT_ALPHA_MULT     = 0.55;
 
 // ============ MORPH ============
 let morph         = 0;
@@ -192,12 +203,6 @@ function getRawProgress() {
 
 function isMorphingNow() {
   return morphSmoothed > MORPH_LOW_LIMIT && morphSmoothed < MORPH_HIGH_LIMIT;
-}
-
-// Factor 1 → estado ovillo puro, 0 → estado cuerpo puro.
-// Suave: cae entre morph 0 y 0.5.
-function ballFactor() {
-  return 1 - smoothstep(0.0, 0.5, morphSmoothed);
 }
 
 // 0 hasta morph ~0.9, 1 al final. Sólo entonces se activan respiración
@@ -457,6 +462,20 @@ class Fiber {
     this.strandCurve  = random(-BALL_STRAND_CURVE, BALL_STRAND_CURVE);
     this.strandJitter = random(-0.35, 0.35);
 
+    // Ventana personal del morph. Las fibras de la PERIFERIA del ovillo
+    // (radius alto) arrancan antes y las del CENTRO arrancan después,
+    // como una madeja desovillándose desde afuera.
+    const radiusNorm = constrain(baseR / BALL_RADIUS, 0, 1);
+    const stagger = constrain(
+      (1 - radiusNorm) * MORPH_STAGGER_RANGE +
+      random(-MORPH_STAGGER_JITTER, MORPH_STAGGER_JITTER),
+      0,
+      MORPH_STAGGER_RANGE + MORPH_STAGGER_JITTER
+    );
+    this.morphStart = stagger;
+    this.morphSpan  = random(MORPH_FIBER_SPAN_MIN, MORPH_FIBER_SPAN_MAX);
+    this.morphEnd   = constrain(this.morphStart + this.morphSpan, 0, 1);
+
     // Posición inicial = anchor ovillo en mundo.
     const w = body.toWorld(this.anchorBallX, this.anchorBallY, 0);
     this.x  = w.x;
@@ -470,10 +489,23 @@ class Fiber {
     }
   }
 
-  // Lerp continuo entre anchorBall y anchorBody, con drift rotacional
-  // del ovillo que se apaga conforme morph crece.
+  // Morph propio de la fibra (0..1) en función del morph global.
+  // Antes de morphStart la fibra está en el ovillo. Entre morphStart y
+  // morphEnd transita. Después está en el cuerpo.
+  personalMorph() {
+    if (morphSmoothed <= this.morphStart) return 0;
+    if (morphSmoothed >= this.morphEnd)   return 1;
+    const t = (morphSmoothed - this.morphStart) /
+              max(this.morphEnd - this.morphStart, 0.0001);
+    return t * t * (3 - 2 * t);
+  }
+
+  // Lerp continuo entre anchorBall y anchorBody usando el morph personal
+  // de la fibra. El drift rotacional del ovillo se apaga conforme cada
+  // fibra empieza su propia transición.
   currentLocalAnchor() {
-    const ballAmt = constrain(1 - morphSmoothed * 1.4, 0, 1);
+    const pm = this.personalMorph();
+    const ballAmt = constrain(1 - pm * 1.4, 0, 1);
 
     let ballX = this.anchorBallX;
     let ballY = this.anchorBallY;
@@ -486,18 +518,18 @@ class Fiber {
       ballY = lerp(this.anchorBallY, driftedY, ballAmt);
     }
 
-    const ax = lerp(ballX, this.anchorBodyX, morphSmoothed);
-    const ay = lerp(ballY, this.anchorBodyY, morphSmoothed);
-    return { ax, ay };
+    const ax = lerp(ballX, this.anchorBodyX, pm);
+    const ay = lerp(ballY, this.anchorBodyY, pm);
+    return { ax, ay, pm };
   }
 
   update() {
-    const { ax: localAX, ay: localAY } = this.currentLocalAnchor();
+    const { ax: localAX, ay: localAY, pm } = this.currentLocalAnchor();
 
     const motionStrength = bodyMotionStrength();
     const anchor = this.body.toWorld(localAX, localAY, motionStrength);
 
-    const wanderAmp = lerp(BALL_WANDER_AMP, FIBER_WANDER_AMP, morphSmoothed);
+    const wanderAmp = lerp(BALL_WANDER_AMP, FIBER_WANDER_AMP, pm);
     const targetX = anchor.x + map(
       noise(this.seed, frameCount * FIBER_NOISE_SPEED),
       0, 1, -wanderAmp, wanderAmp
@@ -518,7 +550,7 @@ class Fiber {
     const offX = this.x - anchor.x;
     const offY = this.y - anchor.y;
     const offD = Math.sqrt(offX * offX + offY * offY);
-    const maxOffset = lerp(BALL_MAX_OFFSET, FIBER_MAX_OFFSET, morphSmoothed);
+    const maxOffset = lerp(BALL_MAX_OFFSET, FIBER_MAX_OFFSET, pm);
 
     if (offD > maxOffset) {
       this.x = lerp(this.x, anchor.x, 0.15);
@@ -532,14 +564,20 @@ class Fiber {
   display() {
     if (this.history.length < 4) return;
 
-    const bf = ballFactor();
+    // Morph propio de la fibra: define cuán "ovillo" o "cuerpo" se ve.
+    const pm = this.personalMorph();
+    const bf = 1 - smoothstep(0.0, 0.5, pm);
+    // transit: 0 fuera de viaje, 1 en el medio del viaje. Curva campana.
+    const transit = 4 * pm * (1 - pm) * (pm > 0 && pm < 1 ? 1 : 0);
+
     const alphaMul   = lerp(FIBER_ALPHA_MULT, BALL_ALPHA_MULT, bf);
     const weightMul  = lerp(FIBER_WEIGHT_MULT, BALL_WEIGHT_MULT, bf);
     const colorBoost = lerp(1.0, BALL_COLOR_BOOST, bf);
 
     // Color: lana → cuerpo. Termina antes para no saltar de tono cuando
-    // aparece el cuerpo base.
-    const colorMix = constrain(map(morphSmoothed, 0.0, 0.7, 0, 1), 0, 1);
+    // aparece el cuerpo base. Ahora usa el morph personal para que cada
+    // fibra cambie su tono al ritmo de su propio viaje.
+    const colorMix = constrain(map(pm, 0.0, 0.7, 0, 1), 0, 1);
     let baseR = lerp(WOOL_R, this.r, colorMix);
     let baseG = lerp(WOOL_G, this.g, colorMix);
     let baseB = lerp(WOOL_B, this.b, colorMix);
@@ -555,9 +593,9 @@ class Fiber {
     const g = constrain(baseG * colorBoost, 0, 255);
     const b = constrain(baseB * colorBoost, 0, 255);
 
-    // Visibilidad del viaje: durante el morph, las fibras se vuelven
-    // más visibles para que se vea el desamarre.
-    const travelMult = isMorphingNow() ? MORPH_TRAVEL_VISIBILITY : 1.0;
+    // Visibilidad del viaje: durante la transición personal la fibra se
+    // realza para que se lea el desamarre.
+    const travelMult = 1.0 + transit * (MORPH_TRAVEL_VISIBILITY - 1.0);
     const minA       = BALL_MIN_ALPHA * bf;
     let alpha        = max(this.alpha * alphaMul * travelMult, minA);
     alpha = constrain(alpha, 0, 255);
@@ -596,6 +634,41 @@ class Fiber {
       curveVertex(this.x + dx, this.y + dy);
       curveVertex(this.x + dx, this.y + dy);
       endShape();
+    }
+
+    // HEBRA DE VIAJE
+    // Mientras la fibra está en su transición personal, dibuja una
+    // línea desde su posición actual hacia un punto que apunta de
+    // vuelta a su anchor del ovillo. Es la marca visible de que la
+    // fibra "viene" del ovillo: literalmente la hebra que aún la une.
+    if (transit > 0.04) {
+      const ballWorld = this.body.toWorld(this.anchorBallX, this.anchorBallY, 0);
+      const dx = ballWorld.x - this.x;
+      const dy = ballWorld.y - this.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist > 1.5) {
+        const tailLen = min(dist * TRANSIT_TRAIL_FRACTION, TRANSIT_TRAIL_MAX_LEN);
+        const ux = dx / dist;
+        const uy = dy / dist;
+        // Curvatura: doblamos un poco la hebra para que no sea recta.
+        const curveAmt = (this.strandCurve * 0.5) * transit;
+        const midX = this.x + ux * tailLen * 0.5 + (-uy) * curveAmt;
+        const midY = this.y + uy * tailLen * 0.5 + ( ux) * curveAmt;
+        const tailX = this.x + ux * tailLen;
+        const tailY = this.y + uy * tailLen;
+
+        const trailAlpha = constrain(alpha * TRANSIT_ALPHA_MULT * transit, 0, 255);
+        stroke(r, g, b, trailAlpha);
+        strokeWeight(max(this.weight * weightMul * 0.7, MORPH_LINE_WEIGHT));
+        noFill();
+        beginShape();
+        curveVertex(tailX, tailY);
+        curveVertex(tailX, tailY);
+        curveVertex(midX,  midY);
+        curveVertex(this.x, this.y);
+        curveVertex(this.x, this.y);
+        endShape();
+      }
     }
   }
 }
