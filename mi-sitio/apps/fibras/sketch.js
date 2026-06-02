@@ -106,6 +106,37 @@ const ACCENT_PALETTE = [
   { r: 178, g: 142, b:  92 }, // ocre suave
 ];
 
+// Paleta de "brillo": colores vivos con los que cada fibra parpadea en el
+// estado cuerpo. La idea es que la figura humana brille en colores
+// distintos al mismo tiempo (coral, ámbar, menta, celeste, lavanda, rosa…).
+const SHINE_PALETTE = [
+  { r: 255, g: 110, b:  88 },  // coral
+  { r: 255, g: 175, b:  70 },  // ámbar
+  { r: 240, g: 230, b: 110 },  // amarillo cálido
+  { r: 130, g: 240, b: 150 },  // menta
+  { r:  95, g: 200, b: 255 },  // celeste
+  { r: 200, g: 140, b: 255 },  // lavanda
+  { r: 255, g: 140, b: 215 },  // rosa
+  { r: 255, g: 230, b: 200 },  // blanco cálido
+];
+const SHINE_PROBABILITY  = 0.55;  // proporción de fibras que brillan
+const SHINE_RATE_MIN     = 0.010; // velocidad de pulso (rad/frame)
+const SHINE_RATE_MAX     = 0.028;
+const SHINE_SHARP_MIN    = 5;     // qué tan picudo es el pulso
+const SHINE_SHARP_MAX    = 12;
+const SHINE_MIX_MAX      = 0.85;  // mezcla máxima del color de brillo
+const SHINE_BODY_THRESH  = 0.55;  // morph personal a partir del cual brilla
+const SHINE_ALPHA_BOOST  = 0.55;  // boost de alpha en el pico del brillo
+
+// Pulso global del cuerpo siguiendo el latido. Multiplica la presencia
+// (alpha) de la capa base y de las fibras del cuerpo en el pico del lub
+// y del dub. Hace que la figura humana lata visualmente con el audio.
+const BODY_PULSE_AMOUNT  = 0.45;
+// Escala física: el cuerpo se contrae/expande con cada latido. 0.06 = 6%
+// de expansión en el pico del lub, lo justo para verlo sin que se vuelva
+// caricaturesco. El dub aporta un pulso menor (heartbeatPulseValue).
+const BODY_PULSE_SCALE   = 0.06;
+
 // ============ MOVIMIENTO GLOBAL DEL CUERPO (solo al final) ============
 const BODY_SWAY_X_AMP    = 4.0;
 const BODY_SWAY_Y_AMP    = 1.8;
@@ -140,17 +171,22 @@ const MORPH_LOW_LIMIT         = 0.10;
 const MORPH_HIGH_LIMIT        = 0.85;
 
 // ============ AUDIO ============
-// Despegue de avión durante el ovillo + primera mitad del morph; fundido
-// cruzado a latido (lub-dub) cuando aparece la figura humana.
+// Despegue de avión durante 10 segundos, después fundido cruzado al
+// latido (lub-dub). El avión está PROGRAMADO: frecuencias y volumen
+// suben (engines spooling up), pico, y caída con leve Doppler al final.
+// A los AIRPLANE_DURATION segundos el master del avión queda en 0.
 const AUDIO_MASTER_VOL  = 0.85;
 const HEARTBEAT_BPM     = 68;
-const TAKEOFF_RAMP_SEC  = 3.5;   // segundos para que el avión llegue al pico
+const AIRPLANE_DURATION = 7;
 let audioCtx               = null;
 let audioMasterGain        = null;
 let airplaneGain           = null;
 let heartbeatGain          = null;
 let heartbeatScheduledUntil = 0;
 let audioReady             = false;
+// Refs a osciladores y gains del avión, para poder programar la secuencia
+// de despegue (frecuencias + envelope) cada vez que arranca o reinicia.
+let airplane               = {};
 
 // ============ ESTADO ============
 let bodyRefImg;
@@ -176,6 +212,7 @@ function setup() {
 
   startMs = millis();
   setupRestartButton();
+  setupAudioLifecycle();
 }
 
 function windowResized() {
@@ -237,6 +274,33 @@ function setupRestartButton() {
    sin archivos. Necesita un gesto de usuario para arrancar.
 ========================================================= */
 
+// Garantías de corte total cuando la página se cierra, recarga o pierde
+// foco. Sin esto, en algunos navegadores la pestaña queda en background
+// con audio activo (sobre todo móviles).
+function setupAudioLifecycle() {
+  // Pestaña oculta → suspendemos. Vuelve → resumimos.
+  document.addEventListener("visibilitychange", () => {
+    if (!audioCtx) return;
+    if (document.hidden) {
+      try { audioCtx.suspend(); } catch (e) { /* ignore */ }
+    } else if (audioCtx.state === "suspended") {
+      try { audioCtx.resume(); } catch (e) { /* ignore */ }
+    }
+  });
+
+  // Página se cierra/recarga → cerramos el AudioContext por completo.
+  // pagehide cubre iOS/mobile mejor que beforeunload, así que escuchamos
+  // los dos por seguridad.
+  const closeAudio = () => {
+    if (!audioCtx) return;
+    try { airplaneGain && airplaneGain.gain.setValueAtTime(0, audioCtx.currentTime); } catch (e) { /* ignore */ }
+    try { heartbeatGain && heartbeatGain.gain.setValueAtTime(0, audioCtx.currentTime); } catch (e) { /* ignore */ }
+    try { audioCtx.close(); } catch (e) { /* ignore */ }
+  };
+  window.addEventListener("pagehide", closeAudio);
+  window.addEventListener("beforeunload", closeAudio);
+}
+
 function ensureAudio() {
   if (audioReady) return;
   const Ctx = window.AudioContext || window.webkitAudioContext;
@@ -253,16 +317,21 @@ function ensureAudio() {
   audioReady = true;
 
   if (audioCtx.state === "suspended") audioCtx.resume();
+
+  // Programa el despegue desde el momento en que el audio arranca.
+  scheduleAirplaneTakeoff(audioCtx.currentTime);
 }
 
 function resetAudioOnRestart() {
   if (!audioReady) return;
   const t = audioCtx.currentTime;
-  airplaneGain.gain.cancelScheduledValues(t);
-  airplaneGain.gain.setValueAtTime(0, t);
+  // Re-programa el despegue desde ahora (cancela el envelope anterior).
+  scheduleAirplaneTakeoff(t);
   heartbeatGain.gain.cancelScheduledValues(t);
   heartbeatGain.gain.setValueAtTime(0, t);
   heartbeatScheduledUntil = t;
+  heartbeatPulseValue = 0;
+  lastHeartMix = 0;
 }
 
 function buildAirplaneSound() {
@@ -295,11 +364,13 @@ function buildAirplaneSound() {
   lowGain.connect(airplaneGain);
 
   // LFO de hélice sobre lowGain: oscila el volumen del rumble grave.
+  // Para un takeoff JET el chop es muy sutil — sólo aporta textura, no
+  // domina (los jets suenan smooth, no choppy como un prop).
   const propLfo = audioCtx.createOscillator();
   propLfo.type = "sine";
   propLfo.frequency.value = 13;
   const propAmt = audioCtx.createGain();
-  propAmt.gain.value = 0.22;          // profundidad del chop
+  propAmt.gain.value = 0.08;          // chop sutil (era 0.22)
   propLfo.connect(propAmt);
   propAmt.connect(lowGain.gain);
 
@@ -313,7 +384,7 @@ function buildAirplaneSound() {
   midFilt.frequency.value = 800;
   midFilt.Q.value = 2;
   const midGain = audioCtx.createGain();
-  midGain.gain.value = 0.34;
+  midGain.gain.value = 0.40;          // un poco más de presencia
   mid.connect(midFilt);
   midFilt.connect(midGain);
   midGain.connect(airplaneGain);
@@ -322,21 +393,21 @@ function buildAirplaneSound() {
   midPropLfo.type = "sine";
   midPropLfo.frequency.value = 8.5;
   const midPropAmt = audioCtx.createGain();
-  midPropAmt.gain.value = 0.10;
+  midPropAmt.gain.value = 0.04;       // muy sutil (era 0.10)
   midPropLfo.connect(midPropAmt);
   midPropAmt.connect(midGain.gain);
 
-  // Capa 3: turbina (~950Hz). Más presente que antes, con vibrato más
-  // amplio (±90Hz) para que se sienta movimiento de motor real.
+  // Capa 3: TURBINA — la firma del takeoff jet. Más fuerte y con vibrato
+  // más sutil (los jets son estables, no oscilan como propellers).
   const whine = audioCtx.createOscillator();
   whine.type = "sawtooth";
   whine.frequency.value = 950;
   const whineFilt = audioCtx.createBiquadFilter();
   whineFilt.type = "bandpass";
   whineFilt.frequency.value = 1300;
-  whineFilt.Q.value = 6;
+  whineFilt.Q.value = 5;
   const whineGain = audioCtx.createGain();
-  whineGain.gain.value = 0.32;
+  whineGain.gain.value = 0.50;        // protagonista del despegue (era 0.32)
   whine.connect(whineFilt);
   whineFilt.connect(whineGain);
   whineGain.connect(airplaneGain);
@@ -344,9 +415,25 @@ function buildAirplaneSound() {
   const whineLfo = audioCtx.createOscillator();
   whineLfo.frequency.value = 0.45;
   const whineLfoAmt = audioCtx.createGain();
-  whineLfoAmt.gain.value = 90;          // vibrato amplio (±90Hz)
+  whineLfoAmt.gain.value = 50;        // vibrato más sutil (era 90)
   whineLfo.connect(whineLfoAmt);
   whineLfoAmt.connect(whine.frequency);
+
+  // Capa 3b: ARMÓNICO de la turbina (octava arriba). Real jet engines
+  // tienen múltiples compressor stages que generan armónicos. Esto
+  // espesa la turbina y la hace inconfundible como avión.
+  const whineHarm = audioCtx.createOscillator();
+  whineHarm.type = "sawtooth";
+  whineHarm.frequency.value = 1900;
+  const whineHarmFilt = audioCtx.createBiquadFilter();
+  whineHarmFilt.type = "bandpass";
+  whineHarmFilt.frequency.value = 2200;
+  whineHarmFilt.Q.value = 6;
+  const whineHarmGain = audioCtx.createGain();
+  whineHarmGain.gain.value = 0.18;
+  whineHarm.connect(whineHarmFilt);
+  whineHarmFilt.connect(whineHarmGain);
+  whineHarmGain.connect(airplaneGain);
 
   // Capa 4: ruido bandpass (aire / motor en banda media).
   const noiseBuf = audioCtx.createBuffer(1, audioCtx.sampleRate * 2, audioCtx.sampleRate);
@@ -360,7 +447,7 @@ function buildAirplaneSound() {
   noiseFilt.frequency.value = 800;
   noiseFilt.Q.value = 0.7;
   const noiseGain = audioCtx.createGain();
-  noiseGain.gain.value = 0.50;
+  noiseGain.gain.value = 0.65;        // motor + aire más presente (era 0.50)
   noise.connect(noiseFilt);
   noiseFilt.connect(noiseGain);
   noiseGain.connect(airplaneGain);
@@ -372,8 +459,8 @@ function buildAirplaneSound() {
   noiseLfo.connect(noiseLfoAmt);
   noiseLfoAmt.connect(noiseFilt.frequency);
 
-  // Capa 5: aire alto / "viento" (highpass del mismo buffer de ruido).
-  // Suma esa hisstacia que tiene un avión a velocidad de crucero.
+  // Capa 5: aire alto / "viento" rasgando — muy presente en un takeoff
+  // a velocidad de despegue.
   const wind = audioCtx.createBufferSource();
   wind.buffer = noiseBuf;
   wind.loop = true;
@@ -382,7 +469,7 @@ function buildAirplaneSound() {
   windFilt.frequency.value = 2200;
   windFilt.Q.value = 0.5;
   const windGain = audioCtx.createGain();
-  windGain.gain.value = 0.22;
+  windGain.gain.value = 0.32;         // viento más fuerte (era 0.22)
   wind.connect(windFilt);
   windFilt.connect(windGain);
   windGain.connect(airplaneGain);
@@ -392,12 +479,80 @@ function buildAirplaneSound() {
   low2.start(t);
   mid.start(t);
   whine.start(t);
+  whineHarm.start(t);
   whineLfo.start(t);
   propLfo.start(t);
   midPropLfo.start(t);
   noise.start(t);
   noiseLfo.start(t);
   wind.start(t);
+
+  // Guardamos las refs que la secuencia de despegue necesita modular:
+  // las frecuencias (rumble grave, medio, turbina y armónico) y el master.
+  airplane = { low1, low2, mid, whine, whineHarm };
+}
+
+// Programa la secuencia de despegue (7 segundos):
+//  · 0–1s:   engines start, idle a low/idle whine.
+//  · 1–4s:   throttle UP — frecuencias barren hacia arriba rápido (engines spooling up).
+//  · 4–5.5s: full thrust, pico de turbina + roar + viento.
+//  · 5.5–7s: liftoff y Doppler departure (frecuencias bajan, volumen apaga).
+//  · t > 7s: SILENCIO ABSOLUTO del avión.
+function scheduleAirplaneTakeoff(t0) {
+  if (!airplane.low1) return;
+
+  // Cancelamos cualquier rampa previa antes de re-programar.
+  airplaneGain.gain.cancelScheduledValues(t0);
+  airplane.low1.frequency.cancelScheduledValues(t0);
+  airplane.low2.frequency.cancelScheduledValues(t0);
+  airplane.mid.frequency.cancelScheduledValues(t0);
+  airplane.whine.frequency.cancelScheduledValues(t0);
+  airplane.whineHarm.frequency.cancelScheduledValues(t0);
+
+  // Rumble grave: arranca bien bajo (idle), sube durante el spool-up,
+  // sostiene en pico, y baja con leve Doppler al final.
+  airplane.low1.frequency.setValueAtTime(32, t0);
+  airplane.low1.frequency.linearRampToValueAtTime(58, t0 + 4);
+  airplane.low1.frequency.linearRampToValueAtTime(58, t0 + 5.5);
+  airplane.low1.frequency.linearRampToValueAtTime(46, t0 + 7);
+
+  airplane.low2.frequency.setValueAtTime(36, t0);
+  airplane.low2.frequency.linearRampToValueAtTime(64, t0 + 4);
+  airplane.low2.frequency.linearRampToValueAtTime(64, t0 + 5.5);
+  airplane.low2.frequency.linearRampToValueAtTime(52, t0 + 7);
+
+  // Rumble medio: 90 → 220 Hz durante el spool-up.
+  airplane.mid.frequency.setValueAtTime(90, t0);
+  airplane.mid.frequency.linearRampToValueAtTime(220, t0 + 4);
+  airplane.mid.frequency.linearRampToValueAtTime(220, t0 + 5.5);
+  airplane.mid.frequency.linearRampToValueAtTime(170, t0 + 7);
+
+  // TURBINA: barrido amplio (300 → 1500 Hz) — ESTE es el sonido
+  // inconfundible de un jet despegando, el "WHEEEEEEEE" agudo subiendo
+  // mientras los compressor stages aceleran.
+  airplane.whine.frequency.setValueAtTime(300, t0);
+  airplane.whine.frequency.linearRampToValueAtTime(1500, t0 + 4);
+  airplane.whine.frequency.linearRampToValueAtTime(1500, t0 + 5.5);
+  airplane.whine.frequency.linearRampToValueAtTime(1100, t0 + 7);
+
+  // Armónico de la turbina (octava arriba): refuerza el barrido.
+  airplane.whineHarm.frequency.setValueAtTime(600, t0);
+  airplane.whineHarm.frequency.linearRampToValueAtTime(3000, t0 + 4);
+  airplane.whineHarm.frequency.linearRampToValueAtTime(3000, t0 + 5.5);
+  airplane.whineHarm.frequency.linearRampToValueAtTime(2200, t0 + 7);
+
+  // Envelope del master del avión:
+  //  · 0–0.4s: arranca (engines start).
+  //  · 0.4–2.5s: ramp up a full thrust (throttle increase).
+  //  · 2.5–5.5s: hold full (despegue + climb).
+  //  · 5.5–7s:  fade out a 0 (avión que se aleja).
+  //  · t > 7s:  setValueAtTime(0) — silencio absoluto, sin cola.
+  airplaneGain.gain.setValueAtTime(0, t0);
+  airplaneGain.gain.linearRampToValueAtTime(0.30, t0 + 0.4);
+  airplaneGain.gain.linearRampToValueAtTime(0.95, t0 + 2.5);
+  airplaneGain.gain.linearRampToValueAtTime(0.95, t0 + 5.5);
+  airplaneGain.gain.linearRampToValueAtTime(0, t0 + AIRPLANE_DURATION);
+  airplaneGain.gain.setValueAtTime(0, t0 + AIRPLANE_DURATION + 0.01);
 }
 
 function buildHeartbeatSound() {
@@ -467,29 +622,56 @@ function scheduleHeartbeat(now) {
   }
 }
 
-// Crossfade avión → latido en función del morph. Ventanas amplias y muy
-// solapadas para que la fusión sea LENTA y los dos sonidos convivan.
+// Estado del pulso visual del corazón. Se recalcula cada frame y lo usan
+// las fibras + la capa base para latir en sincronía con el audio.
+let heartbeatPulseValue = 0;
+let lastHeartMix        = 0;
+
+// El avión ya está programado por scheduleAirplaneTakeoff (envelope +
+// frecuencias). Acá sólo manejamos el latido: empieza a entrar a los 10s
+// exactos, cuando el avión ya está completamente en silencio. A partir
+// de ese momento es SÓLO el latido del corazón.
 function updateAudio(morphSm) {
   if (!audioReady) return;
   const t = audioCtx.currentTime;
   const elapsed = getElapsedSeconds();
 
-  // Sensación de despegue: el avión arranca bajo y crece en TAKEOFF_RAMP_SEC.
-  const takeoffRamp = smoothstep(0, TAKEOFF_RAMP_SEC, elapsed);
-  // Avión: full hasta morph 0.50, luego baja MUY despacio hasta el final.
-  // Llega a 0 recién en morph 1.10 (más allá del final del morph) para que
-  // el avión nunca se corte en seco — siempre hay una cola de motor.
-  const planeMix = (1 - smoothstep(0.50, 1.10, morphSm)) * takeoffRamp;
-  // Latido: empieza a entrar pronto (morph 0.30) y crece despacio hasta 1.0,
-  // así la transición se siente larga y los dos sonidos se cruzan.
-  const heartMix = smoothstep(0.30, 1.00, morphSm);
+  const heartFade = smoothstep(AIRPLANE_DURATION, AIRPLANE_DURATION + 1.2, elapsed);
+  const heartMix  = Math.sin(heartFade * Math.PI * 0.5);
 
-  // Rampas largas (0.4s) para que el cambio de niveles sea suave también
-  // a corto plazo, sin escalones audibles.
-  airplaneGain.gain.linearRampToValueAtTime(planeMix * 0.95, t + 0.4);
-  heartbeatGain.gain.linearRampToValueAtTime(heartMix * 1.0, t + 0.4);
+  heartbeatGain.gain.linearRampToValueAtTime(heartMix * 1.0, t + 0.3);
+
+  // Guardamos el mix actual del latido para que el pulso visual sólo se
+  // sienta cuando el audio del corazón realmente está sonando.
+  lastHeartMix = heartMix;
 
   if (heartMix > 0.01) scheduleHeartbeat(t);
+}
+
+// Pulso visual del corazón: 1 en el pico del lub (y un pico más chico en
+// el dub), 0 entre latidos. Sincronizado al reloj del AudioContext, así
+// el destello visual cae exactamente con el sonido.
+function updateHeartbeatPulseValue() {
+  if (!audioReady || heartbeatScheduledUntil <= 0 || lastHeartMix < 0.02) {
+    heartbeatPulseValue = 0;
+    return;
+  }
+  const now = audioCtx.currentTime;
+  const beatInterval = 60 / HEARTBEAT_BPM;
+
+  // heartbeatScheduledUntil apunta al próximo "lub" que se va a programar.
+  // El último lub que ya sonó es ese menos un beatInterval, ajustado para
+  // que sea <= now.
+  let lastLub = heartbeatScheduledUntil - beatInterval;
+  while (lastLub > now) lastLub -= beatInterval;
+  const sinceLub = Math.max(0, now - lastLub);
+
+  // Lub: pico filoso ~70ms de ancho.
+  const lubPulse = Math.exp(-Math.pow(sinceLub / 0.07, 2));
+  // Dub: pico más chico, 160ms después del lub.
+  const dubPulse = Math.exp(-Math.pow((sinceLub - 0.16) / 0.08, 2)) * 0.55;
+
+  heartbeatPulseValue = Math.max(lubPulse, dubPulse) * lastHeartMix;
 }
 
 /* =========================================================
@@ -550,10 +732,17 @@ function draw() {
   morph = smoothstep(0.03, 0.97, morphRaw);
   morphSmoothed = lerp(morphSmoothed, morph, 0.045);
 
+  // Pulso del corazón (sincronizado al audio). Las fibras y la capa base
+  // lo leen para latir en simultáneo con el lub-dub.
+  updateHeartbeatPulseValue();
+  const pulseBoost = 1 + heartbeatPulseValue * BODY_PULSE_AMOUNT;
+
   // 1) Capa base del cuerpo: png original con sus colores reales. Empieza a
   // aparecer pronto después del hold (morph 0.30) y queda totalmente
   // visible cerca del final, así la figura humana colorida es legible.
-  const bodyBaseAlpha = smoothstep(0.30, 0.90, morphSmoothed) * BODY_BASE_MAX_ALPHA;
+  // Modulada por el pulso del latido para que el cuerpo "lata".
+  const bodyBaseAlphaBase = smoothstep(0.30, 0.90, morphSmoothed) * BODY_BASE_MAX_ALPHA;
+  const bodyBaseAlpha     = constrain(bodyBaseAlphaBase * pulseBoost, 0, 1);
   for (const body of bodies) body.drawBase(bodyBaseAlpha);
 
   // 2) Fibras encima en composite "lighter": el ovillo arena claro se
@@ -655,10 +844,13 @@ class AnimatedBody {
   }
 
   // Local→world. motionStrength escala cuánto sway/breath se aplica.
+  // El pulso del corazón (heartbeatPulseValue) suma una expansión radial
+  // alrededor del centro del cuerpo: cada lub-dub el cuerpo "late".
   toWorld(lx, ly, motionStrength = 1) {
     const m = getBodyMotion(frameCount + this.phase * 60);
-    const sx = lerp(1, m.scaleX, motionStrength);
-    const sy = lerp(1, m.scaleY, motionStrength);
+    const heartScale = 1 + heartbeatPulseValue * BODY_PULSE_SCALE;
+    const sx = lerp(1, m.scaleX, motionStrength) * heartScale;
+    const sy = lerp(1, m.scaleY, motionStrength) * heartScale;
     const swayX = m.swayX * motionStrength;
     const swayY = m.swayY * motionStrength;
     const ox = (lx - this.bodyW * 0.5) * sx;
@@ -671,12 +863,17 @@ class AnimatedBody {
   // humana se lee con su paleta original. NO se tiñe — usamos los pixels
   // del png tal cual, manteniendo la transparencia del fondo, así no hay
   // ningún rectángulo de color: sólo la silueta colorida.
+  // También se escala con el latido para que la silueta lata junto con
+  // las fibras.
   drawBase(bodyBaseAlpha) {
     if (bodyBaseAlpha <= 0.001) return;
     const ctx = drawingContext;
+    const heartScale = 1 + heartbeatPulseValue * BODY_PULSE_SCALE;
     ctx.save();
     ctx.globalAlpha = bodyBaseAlpha;
-    ctx.translate(this.cx - this.bodyW * 0.5, this.cy - this.bodyH * 0.5);
+    ctx.translate(this.cx, this.cy);
+    ctx.scale(heartScale, heartScale);
+    ctx.translate(-this.bodyW * 0.5, -this.bodyH * 0.5);
     const masterEl = this.master.elt || this.master.canvas;
     ctx.drawImage(masterEl, 0, 0, this.bodyW, this.bodyH);
     ctx.restore();
@@ -740,6 +937,17 @@ class Fiber {
     this.accent = null;
     if (random() < ACCENT_PROBABILITY) {
       this.accent = ACCENT_PALETTE[floor(random(ACCENT_PALETTE.length))];
+    }
+
+    // Brillo de colores en el estado cuerpo: cada fibra tiene su propio
+    // color de brillo, ritmo y fase. Eso hace que la figura humana
+    // parpadee en distintos colores a la vez (no a coro).
+    this.shine = null;
+    if (random() < SHINE_PROBABILITY) {
+      this.shine = SHINE_PALETTE[floor(random(SHINE_PALETTE.length))];
+      this.shineRate = random(SHINE_RATE_MIN, SHINE_RATE_MAX);
+      this.shinePhase = random(TWO_PI);
+      this.shineSharp = random(SHINE_SHARP_MIN, SHINE_SHARP_MAX);
     }
 
     this.seed   = random(10000);
@@ -876,6 +1084,25 @@ class Fiber {
       baseB = lerp(baseB, this.accent.b, m);
     }
 
+    // Brillo de colores: en el estado cuerpo cada fibra "respira" hacia
+    // su shineColor con un pulso propio (fase y velocidad únicas), así la
+    // figura humana parpadea en distintos colores a la vez.
+    let shineMix = 0;
+    if (this.shine && pm > SHINE_BODY_THRESH) {
+      const phase = frameCount * this.shineRate + this.shinePhase;
+      const wave  = Math.sin(phase) * 0.5 + 0.5;
+      const gate  = Math.pow(wave, this.shineSharp);
+      const bodyFactor = constrain(
+        (pm - SHINE_BODY_THRESH) / (1 - SHINE_BODY_THRESH),
+        0,
+        1
+      );
+      shineMix = gate * SHINE_MIX_MAX * bodyFactor;
+      baseR = lerp(baseR, this.shine.r, shineMix);
+      baseG = lerp(baseG, this.shine.g, shineMix);
+      baseB = lerp(baseB, this.shine.b, shineMix);
+    }
+
     const r = constrain(baseR * colorBoost, 0, 255);
     const g = constrain(baseG * colorBoost, 0, 255);
     const b = constrain(baseB * colorBoost, 0, 255);
@@ -884,7 +1111,13 @@ class Fiber {
     // realza para que se lea el desamarre.
     const travelMult = 1.0 + transit * (MORPH_TRAVEL_VISIBILITY - 1.0);
     const minA       = BALL_MIN_ALPHA * bf;
-    let alpha        = max(this.alpha * alphaMul * travelMult, minA);
+    // Boost de alpha en el pico del brillo, para que el destello se sienta.
+    const shineAlphaMul = 1 + shineMix * SHINE_ALPHA_BOOST;
+    // Pulso del corazón: sólo aplica a fibras que ya son cuerpo (pm alto).
+    // bodyFactor = 1 cuando la fibra está formada, 0 cuando todavía es ovillo.
+    const bodyFactorPulse = constrain((pm - 0.5) * 2.5, 0, 1);
+    const heartPulseMul   = 1 + heartbeatPulseValue * BODY_PULSE_AMOUNT * bodyFactorPulse;
+    let alpha        = max(this.alpha * alphaMul * travelMult * shineAlphaMul * heartPulseMul, minA);
     alpha = constrain(alpha, 0, 255);
 
     stroke(r, g, b, alpha);
