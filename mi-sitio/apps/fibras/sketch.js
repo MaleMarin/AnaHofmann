@@ -130,12 +130,21 @@ const SHINE_ALPHA_BOOST  = 0.55;  // boost de alpha en el pico del brillo
 
 // Pulso global del cuerpo siguiendo el latido. Multiplica la presencia
 // (alpha) de la capa base y de las fibras del cuerpo en el pico del lub
-// y del dub. Hace que la figura humana lata visualmente con el audio.
-const BODY_PULSE_AMOUNT  = 0.45;
-// Escala física: el cuerpo se contrae/expande con cada latido. 0.06 = 6%
-// de expansión en el pico del lub, lo justo para verlo sin que se vuelva
-// caricaturesco. El dub aporta un pulso menor (heartbeatPulseValue).
-const BODY_PULSE_SCALE   = 0.06;
+// y del dub. Suave: la figura late, no patea. Antes 0.45 → ahora 0.18.
+const BODY_PULSE_AMOUNT  = 0.18;
+// Escala física: el cuerpo se contrae/expande con cada latido. 0.022 =
+// ~2% de expansión en el pico del lub. Antes 0.06 (6%) — daba un brinco
+// muy marcado, ahora es una respiración apenas perceptible.
+const BODY_PULSE_SCALE   = 0.022;
+// Ancho del pulso visual (segundos): gaussianas anchas para que lub y
+// dub se solapen formando una OLA continua, en lugar de dos golpes
+// separados. Antes 0.07/0.08, ahora 0.13/0.13 (suavidad ~2x).
+const HEART_LUB_WIDTH    = 0.13;
+const HEART_DUB_WIDTH    = 0.13;
+const HEART_DUB_STRENGTH = 0.42;
+// Suavizado temporal extra: low-pass del propio heartbeatPulseValue,
+// para que ningún subjump del audio rebote en lo visual.
+const HEART_PULSE_SMOOTH = 0.22;
 
 // ============ MOVIMIENTO GLOBAL DEL CUERPO (solo al final) ============
 const BODY_SWAY_X_AMP    = 4.0;
@@ -146,11 +155,14 @@ const BODY_BREATH_SCALE_Y = 0.0100;
 const BODY_BREATH_SPEED   = 0.0120;
 
 // ============ FIBRAS — DINÁMICA ============
-const FIBER_NOISE_SPEED  = 0.0035;
-const FIBER_WANDER_AMP   = 1.4;
+// Movimiento más suave: noise speed más lento y wander más chico, así
+// las fibras del cuerpo no tiritan, "respiran" suavemente alrededor de
+// su anchor.
+const FIBER_NOISE_SPEED  = 0.0022;
+const FIBER_WANDER_AMP   = 1.0;
 const FIBER_ANCHOR_PULL  = 0.06;
-const FIBER_DAMPING      = 0.88;
-const FIBER_MAX_OFFSET   = 4.0;
+const FIBER_DAMPING      = 0.90;
+const FIBER_MAX_OFFSET   = 3.4;
 const FIBER_ALPHA_MULT   = 0.90;
 const FIBER_WEIGHT_MULT  = 0.82;
 
@@ -338,15 +350,29 @@ function buildAirplaneSound() {
   airplaneGain = audioCtx.createGain();
   airplaneGain.gain.value = 0;
 
+  // Compresor para mantener todo bajo control cuando todas las capas
+  // suben juntas en el pico del despegue.
   const comp = audioCtx.createDynamicsCompressor();
-  comp.threshold.value = -12;
-  comp.ratio.value = 4;
+  comp.threshold.value = -10;
+  comp.ratio.value = 4.5;
+  comp.attack.value = 0.01;
+  comp.release.value = 0.25;
   airplaneGain.connect(comp);
   comp.connect(audioMasterGain);
 
-  // Capa 1: rumble grave (~54-62Hz, dos saws desafinadas) con AM tipo
-  // hélice. La modulación de amplitud (~13Hz) imita el "chop" de las
-  // palas — es lo que el oído identifica enseguida como "avión".
+  // CAPA 0 — SUB-BASS DE TRUENOS (sine, ~26-46Hz). Un takeoff real hace
+  // VIBRAR las ventanas: este sub-bass aporta esa sensación física en el
+  // bajo. Crece dramáticamente con el throttle.
+  const sub = audioCtx.createOscillator();
+  sub.type = "sine";
+  sub.frequency.value = 26;
+  const subGain = audioCtx.createGain();
+  subGain.gain.value = 0;             // arranca en 0, se programa en el schedule
+  sub.connect(subGain);
+  subGain.connect(airplaneGain);
+
+  // CAPA 1 — RUMBLE GRAVE (saw 50-60Hz, dos osciladores desafinados +
+  // lowpass). Es el cuerpo medio-grave del motor. Sin chop: jet smooth.
   const low1 = audioCtx.createOscillator();
   low1.type = "sawtooth";
   low1.frequency.value = 54;
@@ -355,201 +381,243 @@ function buildAirplaneSound() {
   low2.frequency.value = 62;
   const lowFilt = audioCtx.createBiquadFilter();
   lowFilt.type = "lowpass";
-  lowFilt.frequency.value = 260;
+  lowFilt.frequency.value = 280;
   const lowGain = audioCtx.createGain();
-  lowGain.gain.value = 0.58;
+  lowGain.gain.value = 0;             // se programa en el schedule
   low1.connect(lowFilt);
   low2.connect(lowFilt);
   lowFilt.connect(lowGain);
   lowGain.connect(airplaneGain);
 
-  // LFO de hélice sobre lowGain: oscila el volumen del rumble grave.
-  // Para un takeoff JET el chop es muy sutil — sólo aporta textura, no
-  // domina (los jets suenan smooth, no choppy como un prop).
-  const propLfo = audioCtx.createOscillator();
-  propLfo.type = "sine";
-  propLfo.frequency.value = 13;
-  const propAmt = audioCtx.createGain();
-  propAmt.gain.value = 0.08;          // chop sutil (era 0.22)
-  propLfo.connect(propAmt);
-  propAmt.connect(lowGain.gain);
-
-  // Capa 2: rumble medio (~165Hz) con su propio chop más lento, así no se
-  // sincroniza con el grave y se siente más orgánico.
+  // CAPA 2 — RUMBLE MEDIO (saw ~165Hz, lowpass). Suma cuerpo y "growl"
+  // sin tapar el sub. También con chop=0 (jet, no prop).
   const mid = audioCtx.createOscillator();
   mid.type = "sawtooth";
   mid.frequency.value = 165;
   const midFilt = audioCtx.createBiquadFilter();
   midFilt.type = "lowpass";
-  midFilt.frequency.value = 800;
-  midFilt.Q.value = 2;
+  midFilt.frequency.value = 850;
+  midFilt.Q.value = 1.6;
   const midGain = audioCtx.createGain();
-  midGain.gain.value = 0.40;          // un poco más de presencia
+  midGain.gain.value = 0.50;
   mid.connect(midFilt);
   midFilt.connect(midGain);
   midGain.connect(airplaneGain);
 
-  const midPropLfo = audioCtx.createOscillator();
-  midPropLfo.type = "sine";
-  midPropLfo.frequency.value = 8.5;
-  const midPropAmt = audioCtx.createGain();
-  midPropAmt.gain.value = 0.04;       // muy sutil (era 0.10)
-  midPropLfo.connect(midPropAmt);
-  midPropAmt.connect(midGain.gain);
-
-  // Capa 3: TURBINA — la firma del takeoff jet. Más fuerte y con vibrato
-  // más sutil (los jets son estables, no oscilan como propellers).
+  // CAPA 3 — TURBINA (saw bandpass). El "WHEEEEEEE" es la firma
+  // inconfundible. Aquí gana protagonismo con vibrato sutil.
   const whine = audioCtx.createOscillator();
   whine.type = "sawtooth";
   whine.frequency.value = 950;
   const whineFilt = audioCtx.createBiquadFilter();
   whineFilt.type = "bandpass";
   whineFilt.frequency.value = 1300;
-  whineFilt.Q.value = 5;
+  whineFilt.Q.value = 4.5;
   const whineGain = audioCtx.createGain();
-  whineGain.gain.value = 0.50;        // protagonista del despegue (era 0.32)
+  whineGain.gain.value = 0.55;
   whine.connect(whineFilt);
   whineFilt.connect(whineGain);
   whineGain.connect(airplaneGain);
 
+  // Vibrato muy sutil para que la turbina no suene como un sintetizador
+  // estático: simula la fluctuación natural de los compressor stages.
   const whineLfo = audioCtx.createOscillator();
-  whineLfo.frequency.value = 0.45;
+  whineLfo.frequency.value = 0.55;
   const whineLfoAmt = audioCtx.createGain();
-  whineLfoAmt.gain.value = 50;        // vibrato más sutil (era 90)
+  whineLfoAmt.gain.value = 38;
   whineLfo.connect(whineLfoAmt);
   whineLfoAmt.connect(whine.frequency);
 
-  // Capa 3b: ARMÓNICO de la turbina (octava arriba). Real jet engines
-  // tienen múltiples compressor stages que generan armónicos. Esto
-  // espesa la turbina y la hace inconfundible como avión.
+  // CAPA 3b — ARMÓNICO DE LA TURBINA (octava arriba). Le da el "sneer"
+  // metálico característico de un jet a full thrust.
   const whineHarm = audioCtx.createOscillator();
   whineHarm.type = "sawtooth";
   whineHarm.frequency.value = 1900;
   const whineHarmFilt = audioCtx.createBiquadFilter();
   whineHarmFilt.type = "bandpass";
   whineHarmFilt.frequency.value = 2200;
-  whineHarmFilt.Q.value = 6;
+  whineHarmFilt.Q.value = 5;
   const whineHarmGain = audioCtx.createGain();
-  whineHarmGain.gain.value = 0.18;
+  whineHarmGain.gain.value = 0.22;
   whineHarm.connect(whineHarmFilt);
   whineHarmFilt.connect(whineHarmGain);
   whineHarmGain.connect(airplaneGain);
 
-  // Capa 4: ruido bandpass (aire / motor en banda media).
+  // Buffer de ruido blanco compartido por las dos capas de aire.
   const noiseBuf = audioCtx.createBuffer(1, audioCtx.sampleRate * 2, audioCtx.sampleRate);
   const data = noiseBuf.getChannelData(0);
   for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+
+  // CAPA 4 — RUIDO DE MOTOR (bandpass medio, el "GROAR"). Programable:
+  // crece dramáticamente con el throttle. Es el roar del motor.
   const noise = audioCtx.createBufferSource();
   noise.buffer = noiseBuf;
   noise.loop = true;
   const noiseFilt = audioCtx.createBiquadFilter();
   noiseFilt.type = "bandpass";
-  noiseFilt.frequency.value = 800;
-  noiseFilt.Q.value = 0.7;
+  noiseFilt.frequency.value = 700;
+  noiseFilt.Q.value = 0.55;
   const noiseGain = audioCtx.createGain();
-  noiseGain.gain.value = 0.65;        // motor + aire más presente (era 0.50)
+  noiseGain.gain.value = 0;           // se programa en el schedule
   noise.connect(noiseFilt);
   noiseFilt.connect(noiseGain);
   noiseGain.connect(airplaneGain);
 
+  // LFO sutil sobre el filtro de ruido para que el roar no sea estático.
   const noiseLfo = audioCtx.createOscillator();
-  noiseLfo.frequency.value = 0.18;
+  noiseLfo.frequency.value = 0.16;
   const noiseLfoAmt = audioCtx.createGain();
-  noiseLfoAmt.gain.value = 240;
+  noiseLfoAmt.gain.value = 220;
   noiseLfo.connect(noiseLfoAmt);
   noiseLfoAmt.connect(noiseFilt.frequency);
 
-  // Capa 5: aire alto / "viento" rasgando — muy presente en un takeoff
-  // a velocidad de despegue.
+  // CAPA 5 — VIENTO / AIRE (highpass alto, el "WHOOOSH"). Programable:
+  // arranca casi inaudible y crece a una pared de viento al despegar.
+  // Es el aire siendo desgarrado por el avión a velocidad de despegue.
   const wind = audioCtx.createBufferSource();
   wind.buffer = noiseBuf;
   wind.loop = true;
   const windFilt = audioCtx.createBiquadFilter();
   windFilt.type = "highpass";
-  windFilt.frequency.value = 2200;
+  windFilt.frequency.value = 1900;
   windFilt.Q.value = 0.5;
   const windGain = audioCtx.createGain();
-  windGain.gain.value = 0.32;         // viento más fuerte (era 0.22)
+  windGain.gain.value = 0;            // se programa en el schedule
   wind.connect(windFilt);
   windFilt.connect(windGain);
   windGain.connect(airplaneGain);
 
   const t = audioCtx.currentTime;
+  sub.start(t);
   low1.start(t);
   low2.start(t);
   mid.start(t);
   whine.start(t);
   whineHarm.start(t);
   whineLfo.start(t);
-  propLfo.start(t);
-  midPropLfo.start(t);
   noise.start(t);
   noiseLfo.start(t);
   wind.start(t);
 
-  // Guardamos las refs que la secuencia de despegue necesita modular:
-  // las frecuencias (rumble grave, medio, turbina y armónico) y el master.
-  airplane = { low1, low2, mid, whine, whineHarm };
+  // Guardamos refs a frecuencias y gains que la secuencia de despegue
+  // tiene que modular. Las capas con gain dinámico (sub, low, noise,
+  // wind) se programan junto con las frecuencias para crear el spool-up.
+  airplane = {
+    sub, low1, low2, mid, whine, whineHarm,
+    subGain, lowGain, noiseGain, windGain
+  };
 }
 
 // Programa la secuencia de despegue (7 segundos):
-//  · 0–1s:   engines start, idle a low/idle whine.
-//  · 1–4s:   throttle UP — frecuencias barren hacia arriba rápido (engines spooling up).
-//  · 4–5.5s: full thrust, pico de turbina + roar + viento.
-//  · 5.5–7s: liftoff y Doppler departure (frecuencias bajan, volumen apaga).
-//  · t > 7s: SILENCIO ABSOLUTO del avión.
+//
+//  Anatomía de un takeoff real:
+//   0.0–0.4s  Engines start: idle suave, sólo un rumble bajo.
+//   0.4–2.0s  THROTTLE UP: en este momento el avión "ruge". Las
+//             frecuencias y todas las capas (sub, rumble, ruido,
+//             viento) trepan rápido. Es el momento más identificable.
+//   2.0–4.5s  Full thrust: la turbina llega a su pico, el sub vibra,
+//             el viento es una pared. El avión está despegando.
+//   4.5–6.0s  Climb: se mantiene a full mientras "pasa" cerca.
+//   6.0–7.0s  Departure / Doppler: frecuencias bajan (avión que se
+//             aleja), todas las capas decaen a 0.
+//   t > 7s    SILENCIO ABSOLUTO.
 function scheduleAirplaneTakeoff(t0) {
   if (!airplane.low1) return;
 
   // Cancelamos cualquier rampa previa antes de re-programar.
   airplaneGain.gain.cancelScheduledValues(t0);
+  airplane.sub.frequency.cancelScheduledValues(t0);
   airplane.low1.frequency.cancelScheduledValues(t0);
   airplane.low2.frequency.cancelScheduledValues(t0);
   airplane.mid.frequency.cancelScheduledValues(t0);
   airplane.whine.frequency.cancelScheduledValues(t0);
   airplane.whineHarm.frequency.cancelScheduledValues(t0);
+  airplane.subGain.gain.cancelScheduledValues(t0);
+  airplane.lowGain.gain.cancelScheduledValues(t0);
+  airplane.noiseGain.gain.cancelScheduledValues(t0);
+  airplane.windGain.gain.cancelScheduledValues(t0);
 
-  // Rumble grave: arranca bien bajo (idle), sube durante el spool-up,
-  // sostiene en pico, y baja con leve Doppler al final.
+  // === FRECUENCIAS — todas las capas spoolean al mismo tiempo ===
+
+  // Sub-bass de truenos: 26 → 48 Hz (vibración profunda).
+  airplane.sub.frequency.setValueAtTime(26, t0);
+  airplane.sub.frequency.linearRampToValueAtTime(48, t0 + 3.5);
+  airplane.sub.frequency.linearRampToValueAtTime(48, t0 + 5.5);
+  airplane.sub.frequency.linearRampToValueAtTime(34, t0 + 7);
+
+  // Rumble grave: 32 → 60 Hz.
   airplane.low1.frequency.setValueAtTime(32, t0);
-  airplane.low1.frequency.linearRampToValueAtTime(58, t0 + 4);
-  airplane.low1.frequency.linearRampToValueAtTime(58, t0 + 5.5);
+  airplane.low1.frequency.linearRampToValueAtTime(60, t0 + 3.5);
+  airplane.low1.frequency.linearRampToValueAtTime(60, t0 + 5.5);
   airplane.low1.frequency.linearRampToValueAtTime(46, t0 + 7);
 
   airplane.low2.frequency.setValueAtTime(36, t0);
-  airplane.low2.frequency.linearRampToValueAtTime(64, t0 + 4);
-  airplane.low2.frequency.linearRampToValueAtTime(64, t0 + 5.5);
+  airplane.low2.frequency.linearRampToValueAtTime(66, t0 + 3.5);
+  airplane.low2.frequency.linearRampToValueAtTime(66, t0 + 5.5);
   airplane.low2.frequency.linearRampToValueAtTime(52, t0 + 7);
 
-  // Rumble medio: 90 → 220 Hz durante el spool-up.
+  // Rumble medio: 90 → 230 Hz.
   airplane.mid.frequency.setValueAtTime(90, t0);
-  airplane.mid.frequency.linearRampToValueAtTime(220, t0 + 4);
-  airplane.mid.frequency.linearRampToValueAtTime(220, t0 + 5.5);
+  airplane.mid.frequency.linearRampToValueAtTime(230, t0 + 3.5);
+  airplane.mid.frequency.linearRampToValueAtTime(230, t0 + 5.5);
   airplane.mid.frequency.linearRampToValueAtTime(170, t0 + 7);
 
-  // TURBINA: barrido amplio (300 → 1500 Hz) — ESTE es el sonido
-  // inconfundible de un jet despegando, el "WHEEEEEEEE" agudo subiendo
-  // mientras los compressor stages aceleran.
-  airplane.whine.frequency.setValueAtTime(300, t0);
-  airplane.whine.frequency.linearRampToValueAtTime(1500, t0 + 4);
-  airplane.whine.frequency.linearRampToValueAtTime(1500, t0 + 5.5);
+  // TURBINA — barrido más amplio (260 → 1700 Hz). Esto es el "WHEEEE"
+  // que el oído reconoce inmediatamente como avión despegando.
+  airplane.whine.frequency.setValueAtTime(260, t0);
+  airplane.whine.frequency.linearRampToValueAtTime(1700, t0 + 3.5);
+  airplane.whine.frequency.linearRampToValueAtTime(1700, t0 + 5.5);
   airplane.whine.frequency.linearRampToValueAtTime(1100, t0 + 7);
 
-  // Armónico de la turbina (octava arriba): refuerza el barrido.
-  airplane.whineHarm.frequency.setValueAtTime(600, t0);
-  airplane.whineHarm.frequency.linearRampToValueAtTime(3000, t0 + 4);
-  airplane.whineHarm.frequency.linearRampToValueAtTime(3000, t0 + 5.5);
+  // Armónico (octava arriba) — el sneer metálico.
+  airplane.whineHarm.frequency.setValueAtTime(520, t0);
+  airplane.whineHarm.frequency.linearRampToValueAtTime(3400, t0 + 3.5);
+  airplane.whineHarm.frequency.linearRampToValueAtTime(3400, t0 + 5.5);
   airplane.whineHarm.frequency.linearRampToValueAtTime(2200, t0 + 7);
 
-  // Envelope del master del avión:
-  //  · 0–0.4s: arranca (engines start).
-  //  · 0.4–2.5s: ramp up a full thrust (throttle increase).
-  //  · 2.5–5.5s: hold full (despegue + climb).
-  //  · 5.5–7s:  fade out a 0 (avión que se aleja).
-  //  · t > 7s:  setValueAtTime(0) — silencio absoluto, sin cola.
+  // === GAINS DE CAPAS — el spool-up dinámico ===
+  //
+  // Cada capa tiene su propio crecimiento. El sub-bass arranca de cero
+  // y sube fuerte (las ventanas vibran sólo a full thrust). El ruido
+  // de motor empieza bajo y se vuelve un GROAR. El viento es lo último
+  // que aparece (sólo a velocidad de despegue) y es lo primero que
+  // se va con el Doppler.
+
+  // Sub-bass: imperceptible al inicio, masivo en el pico.
+  airplane.subGain.gain.setValueAtTime(0.0, t0);
+  airplane.subGain.gain.linearRampToValueAtTime(0.55, t0 + 3.0);
+  airplane.subGain.gain.linearRampToValueAtTime(0.55, t0 + 5.5);
+  airplane.subGain.gain.linearRampToValueAtTime(0.0, t0 + 7);
+
+  // Rumble grave: idle bajo (0.18) → roar fuerte (0.85).
+  airplane.lowGain.gain.setValueAtTime(0.18, t0);
+  airplane.lowGain.gain.linearRampToValueAtTime(0.85, t0 + 2.5);
+  airplane.lowGain.gain.linearRampToValueAtTime(0.85, t0 + 5.5);
+  airplane.lowGain.gain.linearRampToValueAtTime(0.0, t0 + 7);
+
+  // Ruido de motor (GROAR): el alma del takeoff. Arranca tibio,
+  // explota a full thrust.
+  airplane.noiseGain.gain.setValueAtTime(0.18, t0);
+  airplane.noiseGain.gain.linearRampToValueAtTime(0.95, t0 + 2.8);
+  airplane.noiseGain.gain.linearRampToValueAtTime(0.95, t0 + 5.5);
+  airplane.noiseGain.gain.linearRampToValueAtTime(0.0, t0 + 7);
+
+  // Viento: tarda más en aparecer (sólo a velocidad de despegue) y se
+  // va primero con el Doppler.
+  airplane.windGain.gain.setValueAtTime(0.0, t0);
+  airplane.windGain.gain.linearRampToValueAtTime(0.55, t0 + 3.5);
+  airplane.windGain.gain.linearRampToValueAtTime(0.55, t0 + 5.0);
+  airplane.windGain.gain.linearRampToValueAtTime(0.0, t0 + 6.5);
+
+  // === MASTER — envelope general ===
+  //  · 0–0.3s:  engines start (gain → 0.25).
+  //  · 0.3–2.0s: throttle UP rápido (0.25 → 0.95).
+  //  · 2.0–5.5s: full thrust hold.
+  //  · 5.5–7.0s: Doppler departure (0.95 → 0).
+  //  · t > 7s:   silencio absoluto.
   airplaneGain.gain.setValueAtTime(0, t0);
-  airplaneGain.gain.linearRampToValueAtTime(0.30, t0 + 0.4);
-  airplaneGain.gain.linearRampToValueAtTime(0.95, t0 + 2.5);
+  airplaneGain.gain.linearRampToValueAtTime(0.25, t0 + 0.3);
+  airplaneGain.gain.linearRampToValueAtTime(0.95, t0 + 2.0);
   airplaneGain.gain.linearRampToValueAtTime(0.95, t0 + 5.5);
   airplaneGain.gain.linearRampToValueAtTime(0, t0 + AIRPLANE_DURATION);
   airplaneGain.gain.setValueAtTime(0, t0 + AIRPLANE_DURATION + 0.01);
@@ -648,30 +716,32 @@ function updateAudio(morphSm) {
   if (heartMix > 0.01) scheduleHeartbeat(t);
 }
 
-// Pulso visual del corazón: 1 en el pico del lub (y un pico más chico en
-// el dub), 0 entre latidos. Sincronizado al reloj del AudioContext, así
-// el destello visual cae exactamente con el sonido.
+// Pulso visual del corazón: una OLA continua sincronizada al lub-dub,
+// no dos golpes secos. Las gaussianas son anchas (≈130ms) y se solapan,
+// formando un pulso redondo que sube y baja con suavidad. Además
+// pasamos el resultado por un low-pass temporal para evitar saltos.
 function updateHeartbeatPulseValue() {
   if (!audioReady || heartbeatScheduledUntil <= 0 || lastHeartMix < 0.02) {
-    heartbeatPulseValue = 0;
+    heartbeatPulseValue = lerp(heartbeatPulseValue, 0, HEART_PULSE_SMOOTH);
     return;
   }
   const now = audioCtx.currentTime;
   const beatInterval = 60 / HEARTBEAT_BPM;
 
-  // heartbeatScheduledUntil apunta al próximo "lub" que se va a programar.
-  // El último lub que ya sonó es ese menos un beatInterval, ajustado para
-  // que sea <= now.
   let lastLub = heartbeatScheduledUntil - beatInterval;
   while (lastLub > now) lastLub -= beatInterval;
   const sinceLub = Math.max(0, now - lastLub);
 
-  // Lub: pico filoso ~70ms de ancho.
-  const lubPulse = Math.exp(-Math.pow(sinceLub / 0.07, 2));
-  // Dub: pico más chico, 160ms después del lub.
-  const dubPulse = Math.exp(-Math.pow((sinceLub - 0.16) / 0.08, 2)) * 0.55;
+  // Lub: gaussiana ancha (~130ms) — sin pico filoso.
+  const lubPulse = Math.exp(-Math.pow(sinceLub / HEART_LUB_WIDTH, 2));
+  // Dub: 160ms después del lub, también ancho. Solapa con la cola del
+  // lub, así nunca cae a 0 entre los dos golpes — se siente como un
+  // único movimiento ondulado.
+  const dubPulse = Math.exp(-Math.pow((sinceLub - 0.16) / HEART_DUB_WIDTH, 2)) * HEART_DUB_STRENGTH;
 
-  heartbeatPulseValue = Math.max(lubPulse, dubPulse) * lastHeartMix;
+  const target = Math.max(lubPulse, dubPulse) * lastHeartMix;
+  // Low-pass temporal sobre el propio valor del pulso visual.
+  heartbeatPulseValue = lerp(heartbeatPulseValue, target, HEART_PULSE_SMOOTH);
 }
 
 /* =========================================================
