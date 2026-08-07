@@ -230,7 +230,7 @@ let bodies = [];
 ========================================================= */
 
 function preload() {
-  bodyRefImg = loadImage("/apps/fibras/assets/cuerpo-ref.png");
+  bodyRefImg = loadImage("cuerpo-ref.png");
 }
 
 function setup() {
