@@ -4,27 +4,28 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ana hofmann — código · fotografía · video</title>
-<meta name="description" content="ana hofmann — código · fotografía · video. Sitio personal de arte: piezas generativas, fotografía y video.">
+<meta name="description" content="ana hofmann — código · fotografía · video. Sitio personal de arte.">
 <meta name="author" content="ana hofmann">
 
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="ana hofmann">
 <meta property="og:title" content="ana hofmann — código · fotografía · video">
-<meta property="og:description" content="ana hofmann — código · fotografía · video. Sitio personal de arte: piezas generativas, fotografía y video.">
+<meta property="og:description" content="ana hofmann — código · fotografía · video. Sitio personal de arte.">
 <meta property="og:locale" content="es_ES">
 
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="ana hofmann — código · fotografía · video">
-<meta name="twitter:description" content="ana hofmann — código · fotografía · video. Sitio personal de arte: piezas generativas, fotografía y video.">
+<meta name="twitter:description" content="ana hofmann — código · fotografía · video. Sitio personal de arte.">
 
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth}
 html,body{min-height:100%}
 body{
-  background:#000;
+  background:#101216;
   color:#e8e4dc;
-  font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  font-family:'Space Grotesk',sans-serif;
   -webkit-font-smoothing:antialiased;
 }
 a{color:inherit;text-decoration:none}
@@ -34,85 +35,81 @@ a{color:inherit;text-decoration:none}
   max-width:1100px;
   margin:0 auto;
   padding:56px 72px 80px;
+  min-height:100vh;
+  display:flex;
+  flex-direction:column;
 }
 
-/* —— header / hero —— */
 .top-bar{
   display:flex;
-  justify-content:space-between;
+  justify-content:flex-end;
   align-items:flex-start;
-  margin-bottom:72px;
+  margin-bottom:auto;
 }
 .nav-sections{
   display:flex;
-  gap:28px;
-}
-.nav-sections a{
+  gap:8px;
+  align-items:baseline;
   font-size:11px;
   letter-spacing:.14em;
+  text-transform:lowercase;
+}
+.nav-sections a{
   color:rgba(232,228,220,0.35);
   transition:color .25s ease;
 }
 .nav-sections a:hover{color:#e8e4dc}
+.nav-sep{
+  color:rgba(232,228,220,0.18);
+  pointer-events:none;
+  user-select:none;
+}
 
 .hero{
-  padding:48px 0 96px;
+  padding:48px 0 72px;
 }
 .hero-name{
-  font-size:clamp(42px,9vw,92px);
-  font-weight:400;
-  letter-spacing:-0.02em;
-  line-height:1.05;
-  color:#fff;
-  text-transform:lowercase;
-}
-.hero-desc{
-  margin-top:18px;
-  font-size:clamp(12px,1.6vw,15px);
-  letter-spacing:.18em;
-  color:rgba(255,255,255,0.6);
+  font-size:clamp(52px,8vw,88px);
+  font-weight:300;
+  color:#e8e4dc;
+  letter-spacing:-2px;
+  line-height:1;
   text-transform:lowercase;
 }
 
-/* —— sections —— */
+.sections{flex:1}
 .section{
-  padding:64px 0 24px;
+  padding:40px 0 8px;
   border-top:1px solid rgba(255,255,255,0.06);
 }
-.section-label{
-  font-size:11px;
-  letter-spacing:.18em;
-  color:rgba(232,228,220,0.45);
-  text-transform:lowercase;
-  margin-bottom:32px;
-}
 
-/* código — lista de piezas */
 .projects{
   display:flex;
   gap:0;
 }
 .proj{
   flex:1;
-  padding:8px 32px 8px 0;
+  padding:28px 32px 0 32px;
   border-right:1px solid rgba(255,255,255,0.06);
   position:relative;
-  transition:opacity .25s ease;
+  transition:all .3s ease;
 }
+.proj:first-child{padding-left:0}
 .proj:last-child{border-right:none;padding-right:0}
 .proj-name{
   font-size:14px;
+  font-weight:400;
   color:rgba(232,228,220,0.42);
   letter-spacing:.03em;
-  transition:color .25s ease;
+  transition:color .3s;
 }
 .proj:hover .proj-name{color:#e8e4dc}
 .proj-arrow{
   position:absolute;
-  right:32px;top:8px;
+  right:32px;top:28px;
   font-size:13px;
   color:rgba(232,228,220,0.08);
-  transition:all .25s ease;
+  transition:all .3s;
 }
 .proj:last-child .proj-arrow{right:0}
 .proj:hover .proj-arrow{
@@ -120,43 +117,41 @@ a{color:inherit;text-decoration:none}
   transform:translate(3px,-3px);
 }
 
-/* fotografía — grid vacío */
 .photo-grid{
   display:grid;
   grid-template-columns:repeat(3,1fr);
   gap:12px;
 }
-.photo-slot{
+.photo-item{
   aspect-ratio:4/5;
-  border:1px solid rgba(255,255,255,0.06);
-  background:rgba(255,255,255,0.02);
-  display:flex;
-  align-items:center;
-  justify-content:center;
+  overflow:hidden;
+  background:rgba(255,255,255,0.03);
 }
-.slot-hint{
-  font-size:10px;
-  letter-spacing:.12em;
-  color:rgba(232,228,220,0.18);
-  text-transform:lowercase;
+.photo-item img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  display:block;
 }
 
-/* video — placeholder */
 .video-grid{
   display:grid;
   grid-template-columns:1fr 1fr;
   gap:12px;
 }
-.video-slot{
+.video-item{
   aspect-ratio:16/9;
-  border:1px solid rgba(255,255,255,0.06);
-  background:rgba(255,255,255,0.02);
-  display:flex;
-  align-items:center;
-  justify-content:center;
+  overflow:hidden;
+  background:rgba(255,255,255,0.03);
+}
+.video-item video,
+.video-item iframe{
+  width:100%;
+  height:100%;
+  border:0;
+  display:block;
 }
 
-/* —— footer —— */
 .footer{
   margin-top:96px;
   padding-top:28px;
@@ -164,7 +159,6 @@ a{color:inherit;text-decoration:none}
   display:flex;
   justify-content:space-between;
   align-items:flex-end;
-  gap:24px;
 }
 .footer-id{
   font-size:11px;
@@ -180,20 +174,17 @@ a{color:inherit;text-decoration:none}
 
 @media(max-width:720px){
   .site{padding:36px 28px 64px}
-  .top-bar{flex-direction:column;gap:20px;margin-bottom:48px}
-  .nav-sections{gap:20px}
-  .hero{padding:24px 0 64px}
+  .hero{padding:32px 0 48px}
   .projects{flex-direction:column}
-  .proj,.proj:last-child{
+  .proj,.proj:first-child,.proj:last-child{
     border-right:none;
     border-bottom:1px solid rgba(255,255,255,0.06);
-    padding:20px 0;
+    padding:24px 0;
   }
   .proj:last-child{border-bottom:none}
-  .proj-arrow{right:0;top:20px}
+  .proj-arrow{right:0;top:24px}
   .photo-grid{grid-template-columns:1fr 1fr}
   .video-grid{grid-template-columns:1fr}
-  .footer{flex-direction:column;align-items:flex-start}
 }
 </style>
 </head>
@@ -202,60 +193,136 @@ a{color:inherit;text-decoration:none}
 
   <header class="top-bar">
     <nav class="nav-sections" aria-label="secciones">
-      <a href="#codigo">código</a>
-      <a href="#fotografia">fotografía</a>
-      <a href="#video">video</a>
+      <a href="/#codigo" data-nav="codigo">código</a>
+      <span class="nav-sep">·</span>
+      <a href="/fotografia/" data-nav="fotografia">fotografía</a>
+      <span class="nav-sep">·</span>
+      <a href="/video/" data-nav="video">video</a>
     </nav>
   </header>
 
   <section class="hero" aria-label="identidad">
     <h1 class="hero-name">ana hofmann</h1>
-    <p class="hero-desc">código · fotografía · video</p>
   </section>
 
-  <section class="section" id="codigo">
-    <h2 class="section-label">código</h2>
-    <div class="projects">
-      <a class="proj" href="/apps/motor-de-chroma/">
-        <div class="proj-name">Motor de Chroma</div>
-        <div class="proj-arrow">↗</div>
-      </a>
-      <a class="proj" href="/apps/libelulas/">
-        <div class="proj-name">Libélulas Vectoriales</div>
-        <div class="proj-arrow">↗</div>
-      </a>
-      <a class="proj" href="/apps/fibras/">
-        <div class="proj-name">Anatomía de la Distancia</div>
-        <div class="proj-arrow">↗</div>
-      </a>
-    </div>
-  </section>
-
-  <section class="section" id="fotografia">
-    <h2 class="section-label">fotografía</h2>
-    <div class="photo-grid" aria-label="próximamente">
-      <div class="photo-slot"><span class="slot-hint">—</span></div>
-      <div class="photo-slot"><span class="slot-hint">—</span></div>
-      <div class="photo-slot"><span class="slot-hint">—</span></div>
-      <div class="photo-slot"><span class="slot-hint">—</span></div>
-      <div class="photo-slot"><span class="slot-hint">—</span></div>
-      <div class="photo-slot"><span class="slot-hint">—</span></div>
-    </div>
-  </section>
-
-  <section class="section" id="video">
-    <h2 class="section-label">video</h2>
-    <div class="video-grid" aria-label="próximamente">
-      <div class="video-slot"><span class="slot-hint">—</span></div>
-      <div class="video-slot"><span class="slot-hint">—</span></div>
-    </div>
-  </section>
+  <!-- Secciones renderizadas solo si tienen contenido (ver SITE_CONTENT abajo). -->
+  <div class="sections" id="sections"></div>
 
   <footer class="footer">
-    <div class="footer-id">ana hofmann — código · fotografía · video</div>
+    <div class="footer-id">ana hofmann</div>
     <div class="year">2026</div>
   </footer>
 
 </div>
+
+<script>
+/*
+ * Contenido del sitio. Agregar ítems a fotografia[] o video[]
+ * hace que esa sección aparezca sola en el home.
+ * Dejar el array vacío = la sección no se renderiza.
+ */
+const SITE_CONTENT = {
+  codigo: [
+    { name: "Motor de Chroma", href: "/apps/motor-de-chroma/" },
+    { name: "Libélulas Vectoriales", href: "/apps/libelulas/" },
+    { name: "Anatomía de la Distancia", href: "/apps/fibras/" },
+  ],
+  fotografia: [
+    // { src: "/fotos/ejemplo.jpg", alt: "descripción" },
+  ],
+  video: [
+    // { src: "/videos/ejemplo.mp4" },
+    // { embed: "https://..." },
+  ],
+};
+
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function renderCodigo(items) {
+  const links = items.map((item) => (
+    `<a class="proj" href="${escapeHtml(item.href)}">` +
+    `<div class="proj-name">${escapeHtml(item.name)}</div>` +
+    `<div class="proj-arrow">↗</div>` +
+    `</a>`
+  )).join("");
+  return (
+    `<section class="section" id="codigo">` +
+    `<div class="projects">${links}</div>` +
+    `</section>`
+  );
+}
+
+function renderFotografia(items) {
+  const cells = items.map((item) => (
+    `<figure class="photo-item">` +
+    `<img src="${escapeHtml(item.src)}" alt="${escapeHtml(item.alt || "")}" loading="lazy">` +
+    `</figure>`
+  )).join("");
+  return (
+    `<section class="section" id="fotografia">` +
+    `<div class="photo-grid">${cells}</div>` +
+    `</section>`
+  );
+}
+
+function renderVideo(items) {
+  const cells = items.map((item) => {
+    if (item.embed) {
+      return (
+        `<div class="video-item">` +
+        `<iframe src="${escapeHtml(item.embed)}" allowfullscreen loading="lazy"></iframe>` +
+        `</div>`
+      );
+    }
+    return (
+      `<div class="video-item">` +
+      `<video src="${escapeHtml(item.src)}" controls playsinline></video>` +
+      `</div>`
+    );
+  }).join("");
+  return (
+    `<section class="section" id="video">` +
+    `<div class="video-grid">${cells}</div>` +
+    `</section>`
+  );
+}
+
+function renderHome() {
+  const root = document.getElementById("sections");
+  const parts = [];
+
+  if (SITE_CONTENT.codigo.length) {
+    parts.push(renderCodigo(SITE_CONTENT.codigo));
+  }
+  if (SITE_CONTENT.fotografia.length) {
+    parts.push(renderFotografia(SITE_CONTENT.fotografia));
+  }
+  if (SITE_CONTENT.video.length) {
+    parts.push(renderVideo(SITE_CONTENT.video));
+  }
+
+  root.innerHTML = parts.join("");
+
+  // Nav: ancla en home si hay contenido; si no, página "próximamente".
+  const navMap = {
+    codigo: SITE_CONTENT.codigo.length ? "/#codigo" : "/",
+    fotografia: SITE_CONTENT.fotografia.length ? "/#fotografia" : "/fotografia/",
+    video: SITE_CONTENT.video.length ? "/#video" : "/video/",
+  };
+
+  document.querySelectorAll("[data-nav]").forEach((a) => {
+    const key = a.getAttribute("data-nav");
+    if (navMap[key]) a.setAttribute("href", navMap[key]);
+  });
+}
+
+renderHome();
+</script>
 </body>
 </html>
