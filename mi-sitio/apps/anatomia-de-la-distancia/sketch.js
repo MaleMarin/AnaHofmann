@@ -1,5 +1,5 @@
 /*
- * Anatomía de la Distancia — v634
+ * Anatomía de la Distancia — v635
  *
  * IDEA CENTRAL
  * ------------
@@ -143,14 +143,81 @@ const SHINE_MIX_MAX      = 0.28;  // highlight del propio color, no otra tinta
 const SHINE_BODY_THRESH  = 0.55;
 const SHINE_ALPHA_BOOST  = 0.22;
 
-// Pulso global del cuerpo siguiendo el latido. Multiplica la presencia
-// (alpha) de la capa base y de las fibras del cuerpo en el pico del lub
-// y del dub. Suave: la figura late, no patea. Antes 0.45 → ahora 0.18.
+// Pulso SOLO del corazón (no del cuerpo completo). Multiplica alpha de
+// las fibras cercanas al pecho y la escala del órgano dibujado.
 const BODY_PULSE_AMOUNT  = 0.18;
-// Escala física: el cuerpo se contrae/expande con cada latido. 0.022 =
-// ~2% de expansión en el pico del lub. Antes 0.06 (6%) — daba un brinco
-// muy marcado, ahora es una respiración apenas perceptible.
 const BODY_PULSE_SCALE   = 0.022;
+const HEART_PULSE_SCALE  = 0.14;
+
+// ============ COLOR DIARIO DEL CORAZÓN ============
+// Un color estable por fecha local: mismo día = mismo color,
+// al día siguiente = el siguiente de la paleta. No usa random,
+// frameCount, hora ni refresh.
+const HEART_DAY_COLORS = [
+  "#355BA3",
+  "#5C41A5",
+  "#B84AAB",
+  "#68174D",
+  "#AD0436",
+  "#EFC34A"
+];
+const HEART_DAY_NAMES = {
+  "#355BA3": "azul",
+  "#5C41A5": "violeta",
+  "#B84AAB": "magenta",
+  "#68174D": "ciruela",
+  "#AD0436": "rojo profundo",
+  "#EFC34A": "amarillo"
+};
+// Centro del corazón en coords locales del cuerpo (0..1). El pecho
+// rosa de anatomia-plastico.png cae ~ y=0.29; el órgano se corre un
+// poco a la izquierda anatómica (derecha de pantalla).
+const HEART_NX = 0.56;
+const HEART_NY = 0.292;
+const HEART_RX = 0.11;
+const HEART_RY = 0.075;
+const HEART_BRANCH_RX = 0.26;
+const HEART_BRANCH_RY = 0.16;
+
+function getDayIndex() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const day = now.getDate();
+
+  const date = new Date(year, month, day);
+  const start = new Date(year, 0, 0);
+  const diff = date - start;
+  const oneDay = 1000 * 60 * 60 * 24;
+  const dayOfYear = Math.floor(diff / oneDay);
+
+  return dayOfYear;
+}
+
+function getHeartColorOfTheDay() {
+  const dayIndex = getDayIndex();
+  return HEART_DAY_COLORS[dayIndex % HEART_DAY_COLORS.length];
+}
+
+function getHeartColorName(hex) {
+  return HEART_DAY_NAMES[hex] || hex;
+}
+
+function hexToRgb(hex) {
+  const h = hex.replace("#", "");
+  return {
+    r: parseInt(h.slice(0, 2), 16),
+    g: parseInt(h.slice(2, 4), 16),
+    b: parseInt(h.slice(4, 6), 16)
+  };
+}
+
+const heartColorToday = getHeartColorOfTheDay();
+const heartColorNameToday = getHeartColorName(heartColorToday);
+const heartRGB = hexToRgb(heartColorToday);
+
+// Microanimación de entrada del color del día (no es el pulso).
+let heartIntro = 0;
 // Ancho del pulso visual (segundos): gaussianas anchas para que lub y
 // dub se solapen formando una OLA continua, en lugar de dos golpes
 // separados. Antes 0.07/0.08, ahora 0.13/0.13 (suavidad ~2x).
@@ -224,7 +291,7 @@ let bodies = [];
 ========================================================= */
 
 function preload() {
-  bodyRefImg = loadImage("/apps/anatomia-de-la-distancia/assets/anatomia-plastico.png?v=634");
+  bodyRefImg = loadImage("/apps/anatomia-de-la-distancia/assets/anatomia-plastico.png?v=635");
 }
 
 function setup() {
@@ -240,6 +307,7 @@ function setup() {
   startMs = millis();
   setupRestartButton();
   setupAudioLifecycle();
+  setupHeartDayBadge();
 }
 
 function windowResized() {
@@ -252,6 +320,7 @@ function buildScene() {
   bodies = [];
   morph = 0;
   morphSmoothed = 0;
+  heartIntro = 0;
   bodies.push(new AnimatedBody(width * 0.5, height * 0.52, false, 0.0));
 }
 
@@ -271,6 +340,7 @@ function setupRestartButton() {
       ensureAudio();
       morph = 0;
       morphSmoothed = 0;
+      heartIntro = 0;
       startMs = millis();
       resetAudioOnRestart();
       gate.classList.add("hidden");
@@ -289,6 +359,7 @@ function setupRestartButton() {
   btn.addEventListener("click", () => {
     morph = 0;
     morphSmoothed = 0;
+    heartIntro = 0;
     startMs = millis();
     ensureAudio();
     resetAudioOnRestart();
@@ -800,6 +871,38 @@ function getBodyMotion(frame) {
   return { swayX, swayY, breath, scaleX, scaleY };
 }
 
+function heartInfluence(lx, ly, bodyW, bodyH) {
+  const dx = (lx / bodyW - HEART_NX) / HEART_RX;
+  const dy = (ly / bodyH - HEART_NY) / HEART_RY;
+  const d = Math.sqrt(dx * dx + dy * dy);
+  const core = constrain(1 - d, 0, 1);
+  const dxb = (lx / bodyW - HEART_NX) / HEART_BRANCH_RX;
+  const dyb = (ly / bodyH - HEART_NY) / HEART_BRANCH_RY;
+  const db = Math.sqrt(dxb * dxb + dyb * dyb);
+  const branch = constrain(1 - db, 0, 1) * 0.48;
+  return Math.max(core, branch);
+}
+
+function setupHeartDayBadge() {
+  const swatch = document.getElementById("heartDaySwatch");
+  const nameEl = document.getElementById("heartDayName");
+  const hexEl  = document.getElementById("heartDayHex");
+  const dateEl = document.getElementById("heartDayDate");
+  const badge  = document.getElementById("heartDayBadge");
+  if (!badge) return;
+
+  if (swatch) swatch.style.background = heartColorToday;
+  if (nameEl) nameEl.textContent = heartColorNameToday;
+  if (hexEl)  hexEl.textContent = heartColorToday;
+  badge.style.setProperty("--heart-day", heartColorToday);
+
+  if (dateEl) {
+    const now = new Date();
+    const months = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+    dateEl.textContent = `${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
+  }
+}
+
 /* =========================================================
    DRAW LOOP
 ========================================================= */
@@ -817,14 +920,15 @@ function draw() {
   morph = smoothstep(0.03, 0.97, morphRaw);
   morphSmoothed = lerp(morphSmoothed, morph, 0.045);
 
-  // Pulso del corazón (sincronizado al audio). Las fibras y la capa base
-  // lo leen para latir en simultáneo con el lub-dub.
+  // Pulso del corazón (sincronizado al audio). Sólo el órgano y las
+  // fibras cercanas lo leen; el cuerpo completo no late.
   updateHeartbeatPulseValue();
-  const pulseBoost = 1 + heartbeatPulseValue * BODY_PULSE_AMOUNT;
+  if (morphSmoothed > 0.32) {
+    heartIntro = min(1, heartIntro + 0.014);
+  }
 
   // 1) Anatomía de plástico. Aparece durante el morph.
-  const bodyBaseAlphaBase = smoothstep(0.30, 0.90, morphSmoothed) * BODY_BASE_MAX_ALPHA;
-  const bodyBaseAlpha     = constrain(bodyBaseAlphaBase * pulseBoost, 0, 1);
+  const bodyBaseAlpha = smoothstep(0.30, 0.90, morphSmoothed) * BODY_BASE_MAX_ALPHA;
   for (const body of bodies) body.drawBase(bodyBaseAlpha);
 
   // 2) Ovillo de lana que viaja hacia la anatomía.
@@ -832,6 +936,9 @@ function draw() {
   drawingContext.globalCompositeOperation = "source-over";
   for (const body of bodies) body.drawFibers();
   drawingContext.restore();
+
+  // 3) Corazón del día: color estable, glow y ramificaciones. Pulsa solo él.
+  for (const body of bodies) body.drawHeart();
 
   if (SHOW_DEBUG_PARAMS) drawDebugOverlay(rawProgress, bodyBaseAlpha, isMorphingNow());
   drawTitle();
@@ -936,13 +1043,12 @@ class AnimatedBody {
   }
 
   // Local→world. motionStrength escala cuánto sway/breath se aplica.
-  // El pulso del corazón (heartbeatPulseValue) suma una expansión radial
-  // alrededor del centro del cuerpo: cada lub-dub el cuerpo "late".
+  // El pulso del latido NO escala el cuerpo: sólo el corazón (drawHeart)
+  // y las fibras con heartAmt > 0.
   toWorld(lx, ly, motionStrength = 1) {
     const m = getBodyMotion(frameCount + this.phase * 60);
-    const heartScale = 1 + heartbeatPulseValue * BODY_PULSE_SCALE;
-    const sx = lerp(1, m.scaleX, motionStrength) * heartScale;
-    const sy = lerp(1, m.scaleY, motionStrength) * heartScale;
+    const sx = lerp(1, m.scaleX, motionStrength);
+    const sy = lerp(1, m.scaleY, motionStrength);
     const swayX = m.swayX * motionStrength;
     const swayY = m.swayY * motionStrength;
     const ox = (lx - this.bodyW * 0.5) * sx;
@@ -950,15 +1056,13 @@ class AnimatedBody {
     return { x: this.cx + swayX + ox, y: this.cy + swayY + oy };
   }
 
-  // Capa base: cuerpo de plástico satinado.
+  // Capa base: cuerpo de plástico satinado. Sin pulso global.
   drawBase(bodyBaseAlpha) {
     if (bodyBaseAlpha <= 0.001) return;
     const ctx = drawingContext;
-    const heartScale = 1 + heartbeatPulseValue * BODY_PULSE_SCALE;
     ctx.save();
     ctx.globalAlpha = bodyBaseAlpha;
     ctx.translate(this.cx, this.cy);
-    ctx.scale(heartScale, heartScale);
     ctx.translate(-this.bodyW * 0.5, -this.bodyH * 0.5);
     const paint = this.acrylic || this.master;
     const el = paint.elt || paint.canvas;
@@ -967,10 +1071,80 @@ class AnimatedBody {
   }
 
   drawFibers() {
+    const motionStrength = bodyMotionStrength();
+    this.heartWorld = this.toWorld(
+      this.bodyW * HEART_NX, this.bodyH * HEART_NY, motionStrength
+    );
     for (const f of this.fibers) {
       f.update();
       f.display();
     }
+  }
+
+  drawHeart() {
+    const appear = smoothstep(0.32, 0.78, morphSmoothed);
+    if (appear < 0.01) return;
+
+    const intro = heartIntro * heartIntro * (3 - 2 * heartIntro);
+    const motionStrength = bodyMotionStrength();
+    const origin = this.toWorld(this.bodyW * HEART_NX, this.bodyH * HEART_NY, motionStrength);
+
+    const pulseScale = 1 + heartbeatPulseValue * HEART_PULSE_SCALE;
+    const introScale = lerp(0.74, 1, intro);
+    const s = this.bodyH * 0.00515 * pulseScale * introScale;
+
+    const ctx = drawingContext;
+    ctx.save();
+    ctx.globalCompositeOperation = "source-over";
+
+    const glowR = this.bodyH * (0.11 + heartbeatPulseValue * 0.04 + (1 - intro) * 0.05);
+    const glowA = appear * (0.22 + intro * 0.28 + heartbeatPulseValue * 0.22 + (1 - intro) * 0.35);
+    const grd = ctx.createRadialGradient(origin.x, origin.y, 0, origin.x, origin.y, glowR);
+    grd.addColorStop(0, `rgba(${heartRGB.r},${heartRGB.g},${heartRGB.b},${glowA})`);
+    grd.addColorStop(0.45, `rgba(${heartRGB.r},${heartRGB.g},${heartRGB.b},${glowA * 0.42})`);
+    grd.addColorStop(1, `rgba(${heartRGB.r},${heartRGB.g},${heartRGB.b},0)`);
+    ctx.fillStyle = grd;
+    ctx.beginPath();
+    ctx.arc(origin.x, origin.y, glowR, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Ramificaciones cercanas al corazón, teñidas del color del día.
+    const branchAlpha = appear * intro * (0.42 + heartbeatPulseValue * 0.28);
+    ctx.strokeStyle = `rgba(${heartRGB.r},${heartRGB.g},${heartRGB.b},${branchAlpha})`;
+    ctx.lineWidth = 1.15;
+    ctx.lineCap = "round";
+    const branchDirs = [
+      { ang: -2.35, len: 0.11, curve:  0.035 },
+      { ang: -1.72, len: 0.13, curve: -0.028 },
+      { ang: -0.95, len: 0.10, curve:  0.030 },
+      { ang:  0.55, len: 0.09, curve: -0.022 },
+      { ang:  2.55, len: 0.08, curve:  0.024 },
+      { ang:  3.35, len: 0.10, curve: -0.018 }
+    ];
+    for (const br of branchDirs) {
+      const len = this.bodyH * br.len * (0.92 + intro * 0.12);
+      const x2 = origin.x + Math.cos(br.ang) * len;
+      const y2 = origin.y + Math.sin(br.ang) * len;
+      const mx = (origin.x + x2) * 0.5 + Math.sin(br.ang) * this.bodyH * br.curve;
+      const my = (origin.y + y2) * 0.5 - Math.cos(br.ang) * this.bodyH * br.curve;
+      ctx.beginPath();
+      ctx.moveTo(origin.x, origin.y);
+      ctx.quadraticCurveTo(mx, my, x2, y2);
+      ctx.stroke();
+    }
+
+    const fillA = appear * (0.55 + intro * 0.40);
+    ctx.fillStyle = `rgba(${heartRGB.r},${heartRGB.g},${heartRGB.b},${fillA})`;
+    ctx.beginPath();
+    heartPath(ctx, origin.x, origin.y, s);
+    ctx.fill();
+
+    ctx.fillStyle = `rgba(255,255,255,${appear * intro * 0.22})`;
+    ctx.beginPath();
+    heartPath(ctx, origin.x - s * 2.2, origin.y - s * 3.4, s * 0.32);
+    ctx.fill();
+
+    ctx.restore();
   }
 }
 
@@ -987,6 +1161,9 @@ class Fiber {
     // Anchor cuerpo (sample del png del cuerpo).
     this.anchorBodyX = bodySample.lx;
     this.anchorBodyY = bodySample.ly;
+    this.heartAmt = heartInfluence(
+      this.anchorBodyX, this.anchorBodyY, body.bodyW, body.bodyH
+    );
 
     // Color del cuerpo: USAMOS los samples reales del png (cuerpo-ref.png).
     // La figura humana mantiene su propia paleta colorida.
@@ -1225,9 +1402,17 @@ class Fiber {
       baseB = lerp(baseB, this.accent.b, m);
     }
 
+    // Color del día: teñir el pecho y las ramificaciones cercanas.
+    if (this.heartAmt > 0.02 && colorMix > 0.01) {
+      const tint = this.heartAmt * colorMix * (0.55 + heartIntro * 0.40);
+      baseR = lerp(baseR, heartRGB.r, tint);
+      baseG = lerp(baseG, heartRGB.g, tint);
+      baseB = lerp(baseB, heartRGB.b, tint);
+    }
+
     // Barniz húmedo: aclara el propio color del png, no cambia de tinta.
     let shineMix = 0;
-    if (this.shine && pm > SHINE_BODY_THRESH) {
+    if (this.shine && pm > SHINE_BODY_THRESH && this.heartAmt < 0.35) {
       const phase = frameCount * this.shineRate + this.shinePhase;
       const wave  = Math.sin(phase) * 0.5 + 0.5;
       const gate  = Math.pow(wave, this.shineSharp);
@@ -1252,10 +1437,9 @@ class Fiber {
     const minA       = BALL_MIN_ALPHA * bf;
     // Boost de alpha en el pico del brillo, para que el destello se sienta.
     const shineAlphaMul = 1 + shineMix * SHINE_ALPHA_BOOST;
-    // Pulso del corazón: sólo aplica a fibras que ya son cuerpo (pm alto).
-    // bodyFactor = 1 cuando la fibra está formada, 0 cuando todavía es ovillo.
+    // Pulso: sólo fibras del corazón / pecho (heartAmt), ya formadas.
     const bodyFactorPulse = constrain((pm - 0.5) * 2.5, 0, 1);
-    const heartPulseMul   = 1 + heartbeatPulseValue * BODY_PULSE_AMOUNT * bodyFactorPulse;
+    const heartPulseMul   = 1 + heartbeatPulseValue * BODY_PULSE_AMOUNT * bodyFactorPulse * this.heartAmt;
     let alpha        = max(this.alpha * alphaMul * travelMult * shineAlphaMul * heartPulseMul, minA);
     alpha = constrain(alpha, 0, 255);
 
@@ -1377,6 +1561,16 @@ class Fiber {
 /* =========================================================
    DEBUG / TÍTULO
 ========================================================= */
+
+function heartPath(ctx, cx, cy, s) {
+  ctx.moveTo(cx, cy + 5.5 * s);
+  for (let t = 0; t <= Math.PI * 2 + 0.08; t += 0.08) {
+    const x = 16 * Math.pow(Math.sin(t), 3);
+    const y = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
+    ctx.lineTo(cx + x * s, cy + y * s);
+  }
+  ctx.closePath();
+}
 
 function drawDebugOverlay(rawProgress, bodyBaseAlpha, morphing) {
   push();
