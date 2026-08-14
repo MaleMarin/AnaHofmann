@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cromagénesis — ana hofmann</title>
+<meta name="description" content="Cromagénesis — ana hofmann">
+<meta property="og:site_name" content="ana hofmann">
+<meta property="og:title" content="Cromagénesis — ana hofmann">
+<meta property="og:description" content="Cromagénesis — ana hofmann">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
 <style>
 :root{--bg:#f5f5f5;--glass:rgba(255,255,255,0.9);--txt:#1d1d1f;--txt2:#86868b;--border:rgba(0,0,0,0.08);--accent:#CE2B37;--accent2:#D63B47;--sh1:0 1px 4px rgba(0,0,0,0.05);--sh2:0 4px 14px rgba(0,0,0,0.08);--sh3:0 8px 32px rgba(0,0,0,0.14);--r1:8px;--r2:12px;--r3:18px;--ease:all 0.26s cubic-bezier(0.4,0,0.2,1)}
@@ -257,7 +261,7 @@ const ERAS = [
 ];
 
 let layers=10,rotStripe=1,stripeStep=7,showLines=true,alph=255,filling=true,colorLines=false,sw=0.05;
-let artistPalette=[],userPalette=[],userOn=false,currentKey="okeeffe",currentArtistName="Georgia O'Keeffe";
+let artistPalette=[],userPalette=[],userOn=false,currentKey="okeeffe",currentArtistName="Georgia O'Keeffe",currentEra="Arte Moderno & Contemporáneo";
 
 function getCanvasSize(){
   const c=document.getElementById('canvas-container');
@@ -326,10 +330,10 @@ function mousePressed(e){
   const target=e&&e.target;
   if(target&&target.closest&&target.closest('#canvas-container'))drawArt();
 }
-function keyTyped(){if(key==='s')saveCanvas(downloadName(),'jpg');}
+function keyTyped(){if(key==='s')downloadComposition();}
 
 function setArtist(key){
-  for(const e of ERAS){const a=e.artists.find(x=>x.key===key);if(a){artistPalette=a.colors;currentKey=key;currentArtistName=a.name;userOn=false;userPalette=[];paintPaletteEditor();return a;}}
+  for(const e of ERAS){const a=e.artists.find(x=>x.key===key);if(a){artistPalette=a.colors;currentKey=key;currentArtistName=a.name;currentEra=e.era;userOn=false;userPalette=[];paintPaletteEditor();return a;}}
 }
 
 function rgb2hex(c){return '#'+[c[0],c[1],c[2]].map(v=>Math.round(v).toString(16).padStart(2,'0')).join('').toUpperCase();}
@@ -365,6 +369,70 @@ function paintPaletteEditor(){
 
 function downloadName(){
   return 'Cromagénesis - '+(userOn?'Paleta Personalizada':currentArtistName);
+}
+
+function wrapCaption(ctx, text, maxW){
+  const parts=text.split(/(\s+)/).filter(Boolean);
+  const lines=[];
+  let cur='';
+  for(const p of parts){
+    const test=cur+p;
+    if(cur&&ctx.measureText(test).width>maxW){lines.push(cur.trimEnd());cur=p.trimStart();}
+    else cur=test;
+  }
+  if(cur.trim())lines.push(cur.trim());
+  return lines.length?lines:[''];
+}
+
+function downloadComposition(){
+  const src=document.querySelector('#canvas-container canvas');
+  if(!src)return;
+  const w=src.width;
+  const h=src.height;
+  const pal=(userOn&&userPalette.length)?userPalette:artistPalette;
+  const hexes=pal.map(c=>rgb2hex(c).toLowerCase()).join('  ');
+  const paletteName=(userOn?'paleta personalizada':currentArtistName).toLowerCase();
+  const era=(currentEra||'').toLowerCase();
+  const linesBase=[
+    'obra generativa · cromagénesis',
+    paletteName+(era?' · '+era:''),
+    hexes,
+    'ana hofmann · anahofmann.net'
+  ];
+
+  const padX=Math.max(28, Math.round(w*0.04));
+  const padY=Math.max(32, Math.round(w*0.038));
+  const fontSize=Math.max(12, Math.round(w*0.017));
+  const lineH=Math.round(fontSize*1.7);
+  const ctxMeasure=document.createElement('canvas').getContext('2d');
+  ctxMeasure.font=fontSize+'px ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace';
+  const maxW=w-padX*2;
+  const wrapped=linesBase.flatMap(t=>wrapCaption(ctxMeasure,t,maxW));
+  const footerH=padY*2+wrapped.length*lineH;
+
+  const out=document.createElement('canvas');
+  out.width=w;
+  out.height=h+footerH;
+  const ctx=out.getContext('2d');
+  ctx.fillStyle='#000';
+  ctx.fillRect(0,0,out.width,out.height);
+  ctx.drawImage(src,0,0,w,h);
+  ctx.fillStyle='#000';
+  ctx.fillRect(0,h,w,footerH);
+  ctx.fillStyle='#e8e4dc';
+  ctx.font=fontSize+'px ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace';
+  ctx.textBaseline='top';
+  let y=h+padY;
+  wrapped.forEach(line=>{ctx.fillText(line,padX,y);y+=lineH;});
+
+  out.toBlob(blob=>{
+    if(!blob)return;
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download=downloadName()+'.png';
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),1500);
+  },'image/png');
 }
 
 function buildList(){
@@ -429,12 +497,13 @@ function initUI(){
   bindTog('tog-f',v=>{filling=v;drawArt();});
   bindTog('tog-c',v=>{colorLines=v;drawArt();});
   document.getElementById('btn-dl').addEventListener('click',e=>{
-    e.stopPropagation();saveCanvas(downloadName(),'png');
+    e.stopPropagation();downloadComposition();
   });
   document.getElementById('txt-a').textContent="Georgia O'Keeffe";
 }
 
 window.addEventListener('load',()=>{setTimeout(initUI,800);});
 </script>
+<script src="/site-nav.js"></script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 /* Navegación del sitio: migas de pan + anterior/siguiente. */
 (function () {
   const PIECES = [
-    { href: "/apps/motor-de-chroma/", label: "Motor de Chroma" },
+    { href: "/apps/cromagenesis/", label: "Cromagénesis" },
     { href: "/apps/libelulas/", label: "Libélulas Vectoriales" },
     { href: "/apps/fibras/", label: "Anatomía de la Distancia" },
   ];

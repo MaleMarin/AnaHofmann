@@ -1,5 +1,9 @@
 {
   "version": 2,
   "cleanUrls": true,
-  "trailingSlash": false
+  "trailingSlash": false,
+  "redirects": [
+    { "source": "/apps/motor-de-chroma", "destination": "/apps/cromagenesis", "permanent": true },
+    { "source": "/apps/motor-de-chroma/", "destination": "/apps/cromagenesis", "permanent": true }
+  ]
 }
