@@ -1,20 +1,19 @@
 /*
- * Anatomía de la Distancia — v631
+ * Anatomía de la Distancia — v632
  *
  * IDEA CENTRAL
  * ------------
  * El cuerpo no aparece de golpe. Primero existe un OVILLO DE LANA hecho
- * íntegramente de fibras (espiral + hebras tangenciales con paleta de
- * lana), que se desamarra y viaja hacia la silueta del cuerpo
- * (cuerpo-ref.png). La transformación es un único sistema de fibras con
- * dos anclas: anchorBall (espiral programática) y anchorBody (sample
- * del png del cuerpo). El anchor activo es lerp(ball, body, personalMorph).
+ * íntegramente de fibras, que se desamarra y viaja hacia una anatomía
+ * NUEVA: tubos de plástico, volúmenes redondos y abanicos ramificados
+ * (coral / bronquios), no el png anterior.
  *
- * TEXTURA DEL CUERPO
- *   - Los colores y la silueta salen del png.
- *   - El cuerpo es PLÁSTICO SATINADO 3D: volúmenes redondos, juntas
- *     limpias de color, brillo suave de estudio, no grano ni pincel.
- *     El ovillo sigue siendo lana.
+ * El morph es un único sistema de fibras con dos anclas: anchorBall
+ * (ovillo) y anchorBody (sample de la anatomía generada).
+ *
+ * CUERPO
+ *   - Plástico satinado 3D (cápsulas + esferas + fans).
+ *   - Fondo azul cerúleo. El ovillo sigue siendo lana.
  *
  * MORPH ESCALONADO POR FIBRA
  *   - Cada fibra recibe morphStart + morphSpan al construirse.
@@ -35,7 +34,7 @@
  */
 
 // ============ FLAGS ============
-const SHOW_DEBUG_PARAMS = true;
+const SHOW_DEBUG_PARAMS = false;
 
 // ============ TIMELINE (sin audio) ============
 // Segundos de ovillo puro al principio, y duración de la transformación.
@@ -76,7 +75,7 @@ const BALL_COLOR_BOOST    = 1.0;
 // "lighter" sume hasta saturar la arena en blanco. Con muchas fibras
 // concentradas, alphas altos saturan R primero (220 → 255) y todo se ve
 // blanco. Con valores chicos la suma queda dentro del rango arena.
-const BALL_MIN_ALPHA      = 8;
+const BALL_MIN_ALPHA      = 28;
 const BALL_ROT_SPEED      = 0.0030;
 const BALL_WANDER_AMP     = 2.4;
 const BALL_MAX_OFFSET     = 8.0;
@@ -107,18 +106,18 @@ const BALL_LIGHT_Z       =  0.60;
 const BALL_HILIGHT_MAX   = 0.42;  // cuánto se aclara el pico iluminado
 // Alpha de cada hebra enrollada. Bajo: las hebras son largas y muchas se
 // superponen; con "lighter" hay que evitar que el centro sature en blanco.
-const BALL_STRAND_ALPHA_MULT = 0.16;
+const BALL_STRAND_ALPHA_MULT = 0.42;
 
-// Paleta "arena claro": SOLO para el ovillo (estado inicial). El cuerpo
-// usa los colores reales sampleados de cuerpo-ref.png. Cada fibra hereda
-// dos colores: ballR/G/B (arena, ovillo) y r/g/b (sample del png, cuerpo),
-// y se interpolan durante el morph.
+// Paleta "arena claro": SOLO para el ovillo (estado inicial).
 const WOOL_R = 220;
 const WOOL_G = 192;
 const WOOL_B = 142;
 const WOOL_VARIATION = 12;
 
-// Cuerpo: plástico satinado (referencia de volúmenes lisos).
+// Fondo y cuerpo nuevo (anatomía de plástico, no el png viejo).
+const BG_R = 88;
+const BG_G = 148;
+const BG_B = 232;
 const BODY_BASE_MAX_ALPHA = 1.0;
 
 // Acentos arena suaves: sólo afectan al estado ovillo y se desvanecen al
@@ -226,16 +225,13 @@ let audioReady             = false;
 let airplane               = {};
 
 // ============ ESTADO ============
-let bodyRefImg;
 let bodies = [];
 
 /* =========================================================
    BOOTSTRAP
 ========================================================= */
 
-function preload() {
-  bodyRefImg = loadImage("/apps/fibras/assets/cuerpo-ref.png");
-}
+function preload() {}
 
 function setup() {
   createCanvas(windowWidth, windowHeight);
@@ -245,7 +241,7 @@ function setup() {
   noFill();
 
   buildScene();
-  background(0);
+  background(BG_R, BG_G, BG_B);
 
   startMs = millis();
   setupRestartButton();
@@ -255,7 +251,7 @@ function setup() {
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
   buildScene();
-  background(0);
+  background(BG_R, BG_G, BG_B);
 }
 
 function buildScene() {
@@ -818,8 +814,8 @@ function draw() {
   // Fondo dinámico: durante la transición se borra menos para que se
   // vean los rastros del desamarre.
   const morphing = isMorphingNow();
-  const bgAlpha = morphing ? 28 : 45;
-  background(0, bgAlpha);
+  const bgAlpha = morphing ? 32 : 58;
+  background(BG_R, BG_G, BG_B, bgAlpha);
 
   // Morph desde la línea de tiempo interna.
   const rawProgress = getRawProgress();
@@ -832,17 +828,14 @@ function draw() {
   updateHeartbeatPulseValue();
   const pulseBoost = 1 + heartbeatPulseValue * BODY_PULSE_AMOUNT;
 
-  // 1) Capa base del cuerpo: pintura acrílica con los colores del png.
-  // Empieza a aparecer pronto después del hold y queda formada al final.
-  // Modulada por el pulso del latido para que el cuerpo "lata".
+  // 1) Anatomía de plástico. Aparece durante el morph.
   const bodyBaseAlphaBase = smoothstep(0.30, 0.90, morphSmoothed) * BODY_BASE_MAX_ALPHA;
   const bodyBaseAlpha     = constrain(bodyBaseAlphaBase * pulseBoost, 0, 1);
   for (const body of bodies) body.drawBase(bodyBaseAlpha);
 
-  // 2) Fibras encima en composite "lighter": el ovillo arena claro se
-  // transforma en la figura humana, sumando luz sobre la silueta del png.
+  // 2) Ovillo de lana que viaja hacia la anatomía.
   drawingContext.save();
-  drawingContext.globalCompositeOperation = "lighter";
+  drawingContext.globalCompositeOperation = "source-over";
   for (const body of bodies) body.drawFibers();
   drawingContext.restore();
 
@@ -853,259 +846,8 @@ function draw() {
 }
 
 /* =========================================================
-   CUERPO = PLÁSTICO SATINADO (volúmenes 3D)
-   Como la referencia: formas bulbous lisas, color en bloques, brillo
-   de estudio suave, un poco de luz bajo la superficie. Se parte del
-   png (silueta + zonas de color) y se reconstruye como un sólido
-   redondeado. Cero grano, cero pincel.
+   CUERPO = anatomía de plástico (anatomy.js)
 ========================================================= */
-
-function blurScalar(src, w, h, radius) {
-  const n = w * h;
-  const tmp = new Float32Array(n);
-  const out = new Float32Array(n);
-  const k = radius * 2 + 1;
-  for (let y = 0; y < h; y++) {
-    const row = y * w;
-    let sum = 0;
-    for (let i = -radius; i <= radius; i++) {
-      sum += src[row + constrain(i, 0, w - 1)];
-    }
-    for (let x = 0; x < w; x++) {
-      tmp[row + x] = sum / k;
-      const drop = src[row + constrain(x - radius, 0, w - 1)];
-      const add  = src[row + constrain(x + radius + 1, 0, w - 1)];
-      sum += add - drop;
-    }
-  }
-  for (let x = 0; x < w; x++) {
-    let sum = 0;
-    for (let i = -radius; i <= radius; i++) {
-      sum += tmp[constrain(i, 0, h - 1) * w + x];
-    }
-    for (let y = 0; y < h; y++) {
-      out[y * w + x] = sum / k;
-      const drop = tmp[constrain(y - radius, 0, h - 1) * w + x];
-      const add  = tmp[constrain(y + radius + 1, 0, h - 1) * w + x];
-      sum += add - drop;
-    }
-  }
-  return out;
-}
-
-function dilateFields(cover, colR, colG, colB, w, h, times) {
-  let c = cover, r = colR, g = colG, b = colB;
-  for (let t = 0; t < times; t++) {
-    const nc = new Float32Array(c.length);
-    const nr = new Float32Array(r.length);
-    const ng = new Float32Array(g.length);
-    const nb = new Float32Array(b.length);
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        const idx = y * w + x;
-        let best = c[idx];
-        let br = r[idx], bg = g[idx], bb = b[idx];
-        for (let oy = -1; oy <= 1; oy++) {
-          const yy = y + oy;
-          if (yy < 0 || yy >= h) continue;
-          for (let ox = -1; ox <= 1; ox++) {
-            const xx = x + ox;
-            if (xx < 0 || xx >= w) continue;
-            const j = yy * w + xx;
-            if (c[j] > best) {
-              best = c[j];
-              br = r[j]; bg = g[j]; bb = b[j];
-            }
-          }
-        }
-        nc[idx] = best;
-        nr[idx] = br; ng[idx] = bg; nb[idx] = bb;
-      }
-    }
-    c = nc; r = nr; g = ng; b = nb;
-  }
-  return { cover: c, colR: r, colG: g, colB: b };
-}
-
-function chamferInside(mask, w, h) {
-  const INF = 1e6;
-  const d = new Float32Array(w * h);
-  for (let i = 0; i < d.length; i++) d[i] = mask[i] ? INF : 0;
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const i = y * w + x;
-      if (!mask[i]) continue;
-      let v = d[i];
-      if (x > 0) v = Math.min(v, d[i - 1] + 1);
-      if (y > 0) v = Math.min(v, d[i - w] + 1);
-      if (x > 0 && y > 0) v = Math.min(v, d[i - w - 1] + 1.414);
-      if (x < w - 1 && y > 0) v = Math.min(v, d[i - w + 1] + 1.414);
-      d[i] = v;
-    }
-  }
-  for (let y = h - 1; y >= 0; y--) {
-    for (let x = w - 1; x >= 0; x--) {
-      const i = y * w + x;
-      if (!mask[i]) continue;
-      let v = d[i];
-      if (x < w - 1) v = Math.min(v, d[i + 1] + 1);
-      if (y < h - 1) v = Math.min(v, d[i + w] + 1);
-      if (x < w - 1 && y < h - 1) v = Math.min(v, d[i + w + 1] + 1.414);
-      if (x > 0 && y < h - 1) v = Math.min(v, d[i + w - 1] + 1.414);
-      d[i] = v;
-    }
-  }
-  return d;
-}
-
-function renderPlasticBody(src) {
-  const w = src.width;
-  const h = src.height;
-  const spx = src.pixels;
-  const n = w * h;
-
-  let cover = new Float32Array(n);
-  let colR = new Float32Array(n);
-  let colG = new Float32Array(n);
-  let colB = new Float32Array(n);
-
-  for (let i = 0; i < n; i++) {
-    const p = i * 4;
-    const a = spx[p + 3];
-    const r = spx[p], g = spx[p + 1], b = spx[p + 2];
-    const lum = (r + g + b) / 3;
-    if (a < 16 || lum < 14) continue;
-    cover[i] = 1;
-    colR[i] = r; colG[i] = g; colB[i] = b;
-  }
-
-  // Dilatar: las fibras se vuelven una masa sólida (órganos de plástico).
-  ({ cover, colR, colG, colB } = dilateFields(cover, colR, colG, colB, w, h, 10));
-
-  // Premultiplicar para que el blur no meta negro en el plástico.
-  for (let i = 0; i < n; i++) {
-    colR[i] *= cover[i];
-    colG[i] *= cover[i];
-    colB[i] *= cover[i];
-  }
-
-  cover = blurScalar(cover, w, h, 3);
-  cover = blurScalar(cover, w, h, 3);
-  colR = blurScalar(colR, w, h, 4);
-  colG = blurScalar(colG, w, h, 4);
-  colB = blurScalar(colB, w, h, 4);
-  for (let i = 0; i < n; i++) {
-    if (cover[i] > 0.001) {
-      const inv = 1 / cover[i];
-      colR[i] *= inv;
-      colG[i] *= inv;
-      colB[i] *= inv;
-    }
-  }
-
-  const mask = new Uint8Array(n);
-  for (let i = 0; i < n; i++) mask[i] = cover[i] > 0.28 ? 1 : 0;
-
-  const dist = chamferInside(mask, w, h);
-
-  // Altura = perfil de esfera (volumen bulbous). Un poco de lóbulo lento
-  // para que no sea un tubo uniforme, sin romper la lisura.
-  let height = new Float32Array(n);
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const i = y * w + x;
-      if (!mask[i]) continue;
-      const t = Math.min(dist[i] / 28, 1);
-      const dome = Math.sqrt(Math.max(0, 1 - (1 - t) * (1 - t)));
-      const lobe = 0.82 + 0.22 * noise(x * 0.011, y * 0.011);
-      height[i] = dome * lobe;
-    }
-  }
-  height = blurScalar(height, w, h, 3);
-  height = blurScalar(height, w, h, 2);
-
-  // Key (arriba-derecha, como la foto) + fill izquierdo.
-  const norm3 = (x, y, z) => {
-    const l = Math.sqrt(x * x + y * y + z * z) || 1;
-    return [x / l, y / l, z / l];
-  };
-  const [lx, ly, lz] = norm3(0.48, -0.52, 0.70);
-  const [fx, fy, fz] = norm3(-0.55, 0.10, 0.55);
-  const [hx, hy, hz] = norm3(lx, ly, lz + 1);
-
-  const gbuf = createGraphics(w, h);
-  gbuf.pixelDensity(1);
-  gbuf.clear();
-  const ctx = gbuf.drawingContext;
-  const img = ctx.createImageData(w, h);
-  const out = img.data;
-
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const i = y * w + x;
-      const o = i * 4;
-      if (!mask[i]) {
-        out[o + 3] = 0;
-        continue;
-      }
-
-      const x0 = Math.max(0, x - 1);
-      const x1 = Math.min(w - 1, x + 1);
-      const y0 = Math.max(0, y - 1);
-      const y1 = Math.min(h - 1, y + 1);
-      // Bump bajo: curvatura amplia, no grano.
-      const dHx = (height[y * w + x1] - height[y * w + x0]) * 1.15;
-      const dHy = (height[y1 * w + x] - height[y0 * w + x]) * 1.15;
-      let nx = -dHx, ny = -dHy, nz = 1;
-      const nlen = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
-      nx /= nlen; ny /= nlen; nz /= nlen;
-
-      const ndotl = nx * lx + ny * ly + nz * lz;
-      const ndotf = nx * fx + ny * fy + nz * fz;
-      const ndoth = Math.max(0, nx * hx + ny * hy + nz * hz);
-      const ndotv = Math.max(0, nz);
-
-      // Wrap lighting: volúmenes redondos, no facetas duras.
-      const wrap = 0.45;
-      const key  = constrain((ndotl + wrap) / (1 + wrap), 0, 1);
-      const fill = constrain(ndotf, 0, 1) * 0.28;
-      const amb  = 0.22;
-
-      // AO en pliegues (valle de altura) y cerca del borde.
-      const lap =
-        height[i] * 4 -
-        height[y * w + x0] - height[y * w + x1] -
-        height[y0 * w + x] - height[y1 * w + x];
-      const crease = constrain(-lap * 2.2, 0, 1);
-      const rimAO  = constrain(dist[i] / 7, 0, 1);
-      const ao = (1 - crease * 0.55) * (0.55 + 0.45 * rimAO);
-
-      let ar = colR[i], ag = colG[i], ab = colB[i];
-      // Leche de plástico: un poco de blanco, saturación intacta.
-      ar = ar * 0.88 + 255 * 0.12;
-      ag = ag * 0.88 + 255 * 0.12;
-      ab = ab * 0.88 + 255 * 0.12;
-
-      const lit = (amb + key * 0.72 + fill) * ao;
-      // SSS: el color se filtra en la sombra (plástico suave, no goma mate).
-      const sss = constrain(0.35 - ndotl, 0, 1) * 0.22 * ao;
-      // Especulares satinados (estudio), no destello de vidrio.
-      const specSoft  = Math.pow(ndoth, 14) * 0.38;
-      const specGlint = Math.pow(ndoth, 42) * 0.16;
-      const fresnel   = Math.pow(1 - ndotv, 2.2) * 0.10;
-      const spec = (specSoft + specGlint + fresnel) * ao;
-
-      out[o]     = constrain(ar * (lit + sss) + spec * 245, 0, 255) | 0;
-      out[o + 1] = constrain(ag * (lit + sss) + spec * 248, 0, 255) | 0;
-      out[o + 2] = constrain(ab * (lit + sss) + spec * 255, 0, 255) | 0;
-      const edge = constrain((cover[i] - 0.18) / 0.22, 0, 1);
-      out[o + 3] = (edge * edge * (3 - 2 * edge) * 255) | 0;
-    }
-  }
-
-  ctx.putImageData(img, 0, 0);
-  return gbuf;
-}
 
 /* =========================================================
    ANIMATED BODY
@@ -1118,42 +860,22 @@ class AnimatedBody {
     this.mirror = mirror;
     this.phase = phase;
 
-    const aspect = bodyRefImg.height / bodyRefImg.width;
-    let h = min(height * 0.86, 1200);
-    let w = h * aspect;
-    const maxW = width * 0.50;
-    if (w > maxW) { w = maxW; h = w / aspect; }
+    let h = min(height * 0.92, 1080);
+    let w = h * 0.72;
+    const maxW = width * 0.58;
+    if (w > maxW) { w = maxW; h = w / 0.72; }
 
     this.bodyW = w;
     this.bodyH = h;
 
     this.buildMaster();
-    this.buildPlastic();
     this.buildFibers();
   }
 
-  // Pre-render: imagen rotada 90° CW. Se usa para muestrear posiciones
-  // y colores de las fibras / de la pintura.
   buildMaster() {
-    const g = createGraphics(floor(this.bodyW), floor(this.bodyH));
-    g.pixelDensity(1);
-    g.clear();
-
-    g.push();
-    g.imageMode(CENTER);
-    g.translate(g.width / 2, g.height / 2);
-    g.rotate(HALF_PI);
-    if (this.mirror) g.scale(1, -1);
-    g.image(bodyRefImg, 0, 0, g.height, g.width);
-    g.pop();
-
-    g.loadPixels();
+    const g = generatePlasticAnatomy(floor(this.bodyW), floor(this.bodyH));
     this.master = g;
-  }
-
-  // Plástico satinado: silueta y colores del png, materia de la referencia.
-  buildPlastic() {
-    this.acrylic = renderPlasticBody(this.master);
+    this.acrylic = g;
   }
 
   // Muestra puntos del cuerpo. Cada fibra resultante construye su
