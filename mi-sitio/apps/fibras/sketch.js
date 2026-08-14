@@ -1,5 +1,5 @@
 /*
- * Anatomía de la Distancia — v630
+ * Anatomía de la Distancia — v631
  *
  * IDEA CENTRAL
  * ------------
@@ -11,10 +11,10 @@
  * del png del cuerpo). El anchor activo es lerp(ball, body, personalMorph).
  *
  * TEXTURA DEL CUERPO
- *   - Los colores salen del png (mismas zonas: magenta, verde, amarillo…).
- *   - El acrílico es una PELÍCULA PLÁSTICA: masa opaca + relieve (empaste)
- *     + brillo especular dieléctrico (no rayas de pincel). El ovillo
- *     sigue siendo lana.
+ *   - Los colores y la silueta salen del png.
+ *   - El cuerpo es PLÁSTICO SATINADO 3D: volúmenes redondos, juntas
+ *     limpias de color, brillo suave de estudio, no grano ni pincel.
+ *     El ovillo sigue siendo lana.
  *
  * MORPH ESCALONADO POR FIBRA
  *   - Cada fibra recibe morphStart + morphSpan al construirse.
@@ -118,21 +118,8 @@ const WOOL_G = 192;
 const WOOL_B = 142;
 const WOOL_VARIATION = 12;
 
-// Capa base del cuerpo: película de acrílico pre-iluminada (colores del png).
-const BODY_BASE_MAX_ALPHA = 0.96;
-
-// Shader de acrílico-plástico. El polímero seca como una piel brillante
-// con espesor: se ve por el relieve + especular blanco (dieléctrico),
-// no por líneas de cerdas.
-const ACRYLIC_SPLAT_RADIUS = 5;
-const ACRYLIC_BUMP         = 3.2;
-const ACRYLIC_AMBIENT      = 0.46;
-const ACRYLIC_DIFFUSE      = 0.54;
-const ACRYLIC_SPEC_SHARP   = 0.78;
-const ACRYLIC_SPEC_SHARP_N = 58;
-const ACRYLIC_SPEC_SOFT    = 0.18;
-const ACRYLIC_SPEC_SOFT_N  = 11;
-const ACRYLIC_FRESNEL      = 0.20;
+// Cuerpo: plástico satinado (referencia de volúmenes lisos).
+const BODY_BASE_MAX_ALPHA = 1.0;
 
 // Acentos arena suaves: sólo afectan al estado ovillo y se desvanecen al
 // pasar al cuerpo. Tonos medios — evitamos colores muy claros que sumen
@@ -866,138 +853,185 @@ function draw() {
 }
 
 /* =========================================================
-   ACRÍLICO = PELÍCULA PLÁSTICA
-   El polímero acrílico seca como un film: masa de color opaca, relieve
-   redondeado (empaste) y brillo especular blanco (dieléctrico, no metal).
-   No se simula con rayas: se construye un mapa de espesor, se sacan
-   normales y se ilumina tipo Blinn-Phong.
+   CUERPO = PLÁSTICO SATINADO (volúmenes 3D)
+   Como la referencia: formas bulbous lisas, color en bloques, brillo
+   de estudio suave, un poco de luz bajo la superficie. Se parte del
+   png (silueta + zonas de color) y se reconstruye como un sólido
+   redondeado. Cero grano, cero pincel.
 ========================================================= */
 
-function splatPaintDisk(accR, accG, accB, accW, height, w, h, cx, cy, radius, r, g, b, thick) {
-  const r2 = radius * radius;
-  const x0 = Math.max(0, Math.floor(cx - radius));
-  const x1 = Math.min(w - 1, Math.ceil(cx + radius));
-  const y0 = Math.max(0, Math.floor(cy - radius));
-  const y1 = Math.min(h - 1, Math.ceil(cy + radius));
-  for (let y = y0; y <= y1; y++) {
-    const dy = y - cy;
-    for (let x = x0; x <= x1; x++) {
-      const dx = x - cx;
-      const d2 = dx * dx + dy * dy;
-      if (d2 > r2) continue;
-      const fall = 1 - d2 / r2;
-      const wt = fall * fall;
-      const idx = y * w + x;
-      accR[idx] += r * wt;
-      accG[idx] += g * wt;
-      accB[idx] += b * wt;
-      accW[idx] += wt;
-      height[idx] += thick * wt;
+function blurScalar(src, w, h, radius) {
+  const n = w * h;
+  const tmp = new Float32Array(n);
+  const out = new Float32Array(n);
+  const k = radius * 2 + 1;
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    let sum = 0;
+    for (let i = -radius; i <= radius; i++) {
+      sum += src[row + constrain(i, 0, w - 1)];
+    }
+    for (let x = 0; x < w; x++) {
+      tmp[row + x] = sum / k;
+      const drop = src[row + constrain(x - radius, 0, w - 1)];
+      const add  = src[row + constrain(x + radius + 1, 0, w - 1)];
+      sum += add - drop;
     }
   }
+  for (let x = 0; x < w; x++) {
+    let sum = 0;
+    for (let i = -radius; i <= radius; i++) {
+      sum += tmp[constrain(i, 0, h - 1) * w + x];
+    }
+    for (let y = 0; y < h; y++) {
+      out[y * w + x] = sum / k;
+      const drop = tmp[constrain(y - radius, 0, h - 1) * w + x];
+      const add  = tmp[constrain(y + radius + 1, 0, h - 1) * w + x];
+      sum += add - drop;
+    }
+  }
+  return out;
 }
 
-function renderAcrylicPaint(src) {
+function dilateFields(cover, colR, colG, colB, w, h, times) {
+  let c = cover, r = colR, g = colG, b = colB;
+  for (let t = 0; t < times; t++) {
+    const nc = new Float32Array(c.length);
+    const nr = new Float32Array(r.length);
+    const ng = new Float32Array(g.length);
+    const nb = new Float32Array(b.length);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const idx = y * w + x;
+        let best = c[idx];
+        let br = r[idx], bg = g[idx], bb = b[idx];
+        for (let oy = -1; oy <= 1; oy++) {
+          const yy = y + oy;
+          if (yy < 0 || yy >= h) continue;
+          for (let ox = -1; ox <= 1; ox++) {
+            const xx = x + ox;
+            if (xx < 0 || xx >= w) continue;
+            const j = yy * w + xx;
+            if (c[j] > best) {
+              best = c[j];
+              br = r[j]; bg = g[j]; bb = b[j];
+            }
+          }
+        }
+        nc[idx] = best;
+        nr[idx] = br; ng[idx] = bg; nb[idx] = bb;
+      }
+    }
+    c = nc; r = nr; g = ng; b = nb;
+  }
+  return { cover: c, colR: r, colG: g, colB: b };
+}
+
+function chamferInside(mask, w, h) {
+  const INF = 1e6;
+  const d = new Float32Array(w * h);
+  for (let i = 0; i < d.length; i++) d[i] = mask[i] ? INF : 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (!mask[i]) continue;
+      let v = d[i];
+      if (x > 0) v = Math.min(v, d[i - 1] + 1);
+      if (y > 0) v = Math.min(v, d[i - w] + 1);
+      if (x > 0 && y > 0) v = Math.min(v, d[i - w - 1] + 1.414);
+      if (x < w - 1 && y > 0) v = Math.min(v, d[i - w + 1] + 1.414);
+      d[i] = v;
+    }
+  }
+  for (let y = h - 1; y >= 0; y--) {
+    for (let x = w - 1; x >= 0; x--) {
+      const i = y * w + x;
+      if (!mask[i]) continue;
+      let v = d[i];
+      if (x < w - 1) v = Math.min(v, d[i + 1] + 1);
+      if (y < h - 1) v = Math.min(v, d[i + w] + 1);
+      if (x < w - 1 && y < h - 1) v = Math.min(v, d[i + w + 1] + 1.414);
+      if (x > 0 && y < h - 1) v = Math.min(v, d[i + w - 1] + 1.414);
+      d[i] = v;
+    }
+  }
+  return d;
+}
+
+function renderPlasticBody(src) {
   const w = src.width;
   const h = src.height;
   const spx = src.pixels;
   const n = w * h;
 
-  const accR = new Float32Array(n);
-  const accG = new Float32Array(n);
-  const accB = new Float32Array(n);
-  const accW = new Float32Array(n);
-  const height = new Float32Array(n);
+  let cover = new Float32Array(n);
+  let colR = new Float32Array(n);
+  let colG = new Float32Array(n);
+  let colB = new Float32Array(n);
 
-  const radius = ACRYLIC_SPLAT_RADIUS;
+  for (let i = 0; i < n; i++) {
+    const p = i * 4;
+    const a = spx[p + 3];
+    const r = spx[p], g = spx[p + 1], b = spx[p + 2];
+    const lum = (r + g + b) / 3;
+    if (a < 16 || lum < 14) continue;
+    cover[i] = 1;
+    colR[i] = r; colG[i] = g; colB[i] = b;
+  }
 
-  // 1) Masa de pintura: cada pixel de color del png se deposita como
-  //    un disco opaco. Eso cierra los huecos entre fibras sin mezclar
-  //    zonas (el radio es chico: el magenta sigue magenta).
-  for (let y = 0; y < h; y += 2) {
-    for (let x = 0; x < w; x += 2) {
-      const i = (y * w + x) * 4;
-      const a = spx[i + 3];
-      const r = spx[i];
-      const g = spx[i + 1];
-      const b = spx[i + 2];
-      if (a < 16) continue;
-      const lum = (r + g + b) / 3;
-      if (lum < 14) continue;
-      const maxC = Math.max(r, g, b);
-      const minC = Math.min(r, g, b);
-      const sat = maxC > 0 ? (maxC - minC) / maxC : 0;
-      const thick = 0.32 + sat * 0.48 + (lum / 255) * 0.22;
-      splatPaintDisk(accR, accG, accB, accW, height, w, h, x, y, radius, r, g, b, thick);
+  // Dilatar: las fibras se vuelven una masa sólida (órganos de plástico).
+  ({ cover, colR, colG, colB } = dilateFields(cover, colR, colG, colB, w, h, 10));
+
+  // Premultiplicar para que el blur no meta negro en el plástico.
+  for (let i = 0; i < n; i++) {
+    colR[i] *= cover[i];
+    colG[i] *= cover[i];
+    colB[i] *= cover[i];
+  }
+
+  cover = blurScalar(cover, w, h, 3);
+  cover = blurScalar(cover, w, h, 3);
+  colR = blurScalar(colR, w, h, 4);
+  colG = blurScalar(colG, w, h, 4);
+  colB = blurScalar(colB, w, h, 4);
+  for (let i = 0; i < n; i++) {
+    if (cover[i] > 0.001) {
+      const inv = 1 / cover[i];
+      colR[i] *= inv;
+      colG[i] *= inv;
+      colB[i] *= inv;
     }
   }
 
-  // 2) Picos de empaste: montículos extra de polímero en zonas saturadas.
-  //    Ahí el especular se concentra como en pintura gorda.
-  for (let k = 0; k < 900; k++) {
-    const x = (noise(k * 0.17, 1.3) * w) | 0;
-    const y = (noise(k * 0.19, 4.8) * h) | 0;
-    const i = (y * w + x) * 4;
-    if (spx[i + 3] < 30) continue;
-    const r = spx[i], g = spx[i + 1], b = spx[i + 2];
-    const lum = (r + g + b) / 3;
-    if (lum < 20) continue;
-    const maxC = Math.max(r, g, b);
-    const minC = Math.min(r, g, b);
-    const sat = maxC > 0 ? (maxC - minC) / maxC : 0;
-    if (sat < 0.18) continue;
-    const rad = 6 + sat * 8;
-    splatPaintDisk(accR, accG, accB, accW, height, w, h, x, y, rad, r, g, b, 0.55 + sat * 0.7);
-  }
+  const mask = new Uint8Array(n);
+  for (let i = 0; i < n; i++) mask[i] = cover[i] > 0.28 ? 1 : 0;
 
-  // 3) Relieve de pincel: surcos anisotrópicos suaves (la marca del
-  //    gesto) + lóbulos de espesor. Después se suavizan para que el
-  //    filo sea redondo como plástico, no como xilografía.
-  const ridged = new Float32Array(n);
+  const dist = chamferInside(mask, w, h);
+
+  // Altura = perfil de esfera (volumen bulbous). Un poco de lóbulo lento
+  // para que no sea un tubo uniforme, sin romper la lisura.
+  let height = new Float32Array(n);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      const idx = y * w + x;
-      const cover = accW[idx];
-      if (cover < 0.06) continue;
-      const ang = noise(x * 0.007, y * 0.007) * Math.PI;
-      const c = Math.cos(ang);
-      const s = Math.sin(ang);
-      const across = -x * s + y * c;
-      const along = x * c + y * s;
-      const groove = 0.5 + 0.5 * Math.sin(across * 0.78 + along * 0.04);
-      const fine = 0.5 + 0.5 * Math.sin(across * 1.85);
-      const lumps = noise(x * 0.032, y * 0.032);
-      let ht = height[idx] * (0.55 + lumps * 0.65);
-      ht += groove * 0.28 * cover;
-      ht += fine * 0.10 * cover;
-      ridged[idx] = ht;
+      const i = y * w + x;
+      if (!mask[i]) continue;
+      const t = Math.min(dist[i] / 28, 1);
+      const dome = Math.sqrt(Math.max(0, 1 - (1 - t) * (1 - t)));
+      const lobe = 0.82 + 0.22 * noise(x * 0.011, y * 0.011);
+      height[i] = dome * lobe;
     }
   }
+  height = blurScalar(height, w, h, 3);
+  height = blurScalar(height, w, h, 2);
 
-  // Blur 3×3 del espesor → crestas de polímero redondeadas.
-  const smoothH = new Float32Array(n);
-  for (let y = 1; y < h - 1; y++) {
-    for (let x = 1; x < w - 1; x++) {
-      const idx = y * w + x;
-      if (accW[idx] < 0.06) continue;
-      let s = 0;
-      for (let oy = -1; oy <= 1; oy++) {
-        for (let ox = -1; ox <= 1; ox++) {
-          s += ridged[(y + oy) * w + (x + ox)];
-        }
-      }
-      smoothH[idx] = s / 9;
-    }
-  }
-
-  // Luz: arriba-izquierda, hacia el observador (mismo lado que el ovillo).
-  let lx = -0.42, ly = -0.62, lz = 0.66;
-  const llen = Math.sqrt(lx * lx + ly * ly + lz * lz);
-  lx /= llen; ly /= llen; lz /= llen;
-  const vx = 0, vy = 0, vz = 1;
-  let hx = lx + vx, hy = ly + vy, hz = lz + vz;
-  const hlen = Math.sqrt(hx * hx + hy * hy + hz * hz);
-  hx /= hlen; hy /= hlen; hz /= hlen;
+  // Key (arriba-derecha, como la foto) + fill izquierdo.
+  const norm3 = (x, y, z) => {
+    const l = Math.sqrt(x * x + y * y + z * z) || 1;
+    return [x / l, y / l, z / l];
+  };
+  const [lx, ly, lz] = norm3(0.48, -0.52, 0.70);
+  const [fx, fy, fz] = norm3(-0.55, 0.10, 0.55);
+  const [hx, hy, hz] = norm3(lx, ly, lz + 1);
 
   const gbuf = createGraphics(w, h);
   gbuf.pixelDensity(1);
@@ -1008,49 +1042,63 @@ function renderAcrylicPaint(src) {
 
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      const idx = y * w + x;
-      const cover = accW[idx];
-      const o = idx * 4;
-      if (cover < 0.08) {
+      const i = y * w + x;
+      const o = i * 4;
+      if (!mask[i]) {
         out[o + 3] = 0;
         continue;
       }
-
-      const inv = 1 / cover;
-      const ar = accR[idx] * inv;
-      const ag = accG[idx] * inv;
-      const ab = accB[idx] * inv;
 
       const x0 = Math.max(0, x - 1);
       const x1 = Math.min(w - 1, x + 1);
       const y0 = Math.max(0, y - 1);
       const y1 = Math.min(h - 1, y + 1);
-      const dHx = (smoothH[y * w + x1] - smoothH[y * w + x0]) * ACRYLIC_BUMP;
-      const dHy = (smoothH[y1 * w + x] - smoothH[y0 * w + x]) * ACRYLIC_BUMP;
-      let nx = -dHx;
-      let ny = -dHy;
-      let nz = 1;
+      // Bump bajo: curvatura amplia, no grano.
+      const dHx = (height[y * w + x1] - height[y * w + x0]) * 1.15;
+      const dHy = (height[y1 * w + x] - height[y0 * w + x]) * 1.15;
+      let nx = -dHx, ny = -dHy, nz = 1;
       const nlen = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
       nx /= nlen; ny /= nlen; nz /= nlen;
 
-      const ndotl = Math.max(0, nx * lx + ny * ly + nz * lz);
+      const ndotl = nx * lx + ny * ly + nz * lz;
+      const ndotf = nx * fx + ny * fy + nz * fz;
       const ndoth = Math.max(0, nx * hx + ny * hy + nz * hz);
-      const ndotv = Math.max(0, nx * vx + ny * vy + nz * vz);
+      const ndotv = Math.max(0, nz);
 
-      const specSharp = Math.pow(ndoth, ACRYLIC_SPEC_SHARP_N) * ACRYLIC_SPEC_SHARP;
-      const specSoft  = Math.pow(ndoth, ACRYLIC_SPEC_SOFT_N) * ACRYLIC_SPEC_SOFT;
-      const fresnel   = Math.pow(1 - ndotv, 3) * ACRYLIC_FRESNEL;
-      const spec = specSharp + specSoft + fresnel;
+      // Wrap lighting: volúmenes redondos, no facetas duras.
+      const wrap = 0.45;
+      const key  = constrain((ndotl + wrap) / (1 + wrap), 0, 1);
+      const fill = constrain(ndotf, 0, 1) * 0.28;
+      const amb  = 0.22;
 
-      const lit = ACRYLIC_AMBIENT + ACRYLIC_DIFFUSE * ndotl;
-      const specR = spec * (220 + ar * 0.14);
-      const specG = spec * (220 + ag * 0.14);
-      const specB = spec * (220 + ab * 0.14);
+      // AO en pliegues (valle de altura) y cerca del borde.
+      const lap =
+        height[i] * 4 -
+        height[y * w + x0] - height[y * w + x1] -
+        height[y0 * w + x] - height[y1 * w + x];
+      const crease = constrain(-lap * 2.2, 0, 1);
+      const rimAO  = constrain(dist[i] / 7, 0, 1);
+      const ao = (1 - crease * 0.55) * (0.55 + 0.45 * rimAO);
 
-      out[o]     = constrain(ar * lit + specR, 0, 255) | 0;
-      out[o + 1] = constrain(ag * lit + specG, 0, 255) | 0;
-      out[o + 2] = constrain(ab * lit + specB, 0, 255) | 0;
-      const edge = constrain((cover - 0.08) / 0.38, 0, 1);
+      let ar = colR[i], ag = colG[i], ab = colB[i];
+      // Leche de plástico: un poco de blanco, saturación intacta.
+      ar = ar * 0.88 + 255 * 0.12;
+      ag = ag * 0.88 + 255 * 0.12;
+      ab = ab * 0.88 + 255 * 0.12;
+
+      const lit = (amb + key * 0.72 + fill) * ao;
+      // SSS: el color se filtra en la sombra (plástico suave, no goma mate).
+      const sss = constrain(0.35 - ndotl, 0, 1) * 0.22 * ao;
+      // Especulares satinados (estudio), no destello de vidrio.
+      const specSoft  = Math.pow(ndoth, 14) * 0.38;
+      const specGlint = Math.pow(ndoth, 42) * 0.16;
+      const fresnel   = Math.pow(1 - ndotv, 2.2) * 0.10;
+      const spec = (specSoft + specGlint + fresnel) * ao;
+
+      out[o]     = constrain(ar * (lit + sss) + spec * 245, 0, 255) | 0;
+      out[o + 1] = constrain(ag * (lit + sss) + spec * 248, 0, 255) | 0;
+      out[o + 2] = constrain(ab * (lit + sss) + spec * 255, 0, 255) | 0;
+      const edge = constrain((cover[i] - 0.18) / 0.22, 0, 1);
       out[o + 3] = (edge * edge * (3 - 2 * edge) * 255) | 0;
     }
   }
@@ -1080,7 +1128,7 @@ class AnimatedBody {
     this.bodyH = h;
 
     this.buildMaster();
-    this.buildAcrylic();
+    this.buildPlastic();
     this.buildFibers();
   }
 
@@ -1103,9 +1151,9 @@ class AnimatedBody {
     this.master = g;
   }
 
-  // Película de acrílico: masa de color del png + relieve + brillo plástico.
-  buildAcrylic() {
-    this.acrylic = renderAcrylicPaint(this.master);
+  // Plástico satinado: silueta y colores del png, materia de la referencia.
+  buildPlastic() {
+    this.acrylic = renderPlasticBody(this.master);
   }
 
   // Muestra puntos del cuerpo. Cada fibra resultante construye su
@@ -1165,7 +1213,7 @@ class AnimatedBody {
     return { x: this.cx + swayX + ox, y: this.cy + swayY + oy };
   }
 
-  // Capa base: película de acrílico (masa + relieve + brillo plástico).
+  // Capa base: cuerpo de plástico satinado.
   drawBase(bodyBaseAlpha) {
     if (bodyBaseAlpha <= 0.001) return;
     const ctx = drawingContext;
