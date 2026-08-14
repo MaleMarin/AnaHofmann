@@ -1,5 +1,5 @@
 /*
- * Anatomía de la Distancia — v635
+ * Anatomía de la Distancia — v636
  *
  * IDEA CENTRAL
  * ------------
@@ -99,55 +99,63 @@ const BALL_HILIGHT_MAX   = 0.42;  // cuánto se aclara el pico iluminado
 // superponen; con "lighter" hay que evitar que el centro sature en blanco.
 const BALL_STRAND_ALPHA_MULT = 0.42;
 
-// Paleta "arena claro": SOLO para el ovillo (estado inicial).
+// Paleta "arena": SOLO para el ovillo (estado inicial), sobre negro.
 const WOOL_R = 220;
 const WOOL_G = 192;
 const WOOL_B = 142;
 const WOOL_VARIATION = 12;
 
-// Fondo y cuerpo nuevo (anatomía de plástico, no el png viejo).
-const BG_R = 88;
-const BG_G = 148;
-const BG_B = 232;
+// Fondo negro. El cuerpo se construye con PALETTE.
+const BG_COLOR = "#000000";
+const BG_R = 0;
+const BG_G = 0;
+const BG_B = 0;
 const BODY_BASE_MAX_ALPHA = 1.0;
 
-// Acentos arena suaves: sólo afectan al estado ovillo y se desvanecen al
-// pasar al cuerpo. Tonos medios — evitamos colores muy claros que sumen
-// brillo al composite "lighter".
+const PALETTE = [
+  "#355BA3", // azul
+  "#5C41A5", // violeta
+  "#B84AAB", // magenta
+  "#68174D", // ciruela oscura
+  "#AD0436", // rojo profundo — corazón / foco vital
+  "#EFC34A"  // amarillo — acentos de luz
+];
+const PALETTE_RGB = PALETTE.map(hexToRgbStatic);
+
+function hexToRgbStatic(hex) {
+  const h = hex.replace("#", "");
+  return {
+    r: parseInt(h.slice(0, 2), 16),
+    g: parseInt(h.slice(2, 4), 16),
+    b: parseInt(h.slice(4, 6), 16)
+  };
+}
+
+// Acentos del ovillo: se desvanecen al pasar al cuerpo.
 const ACCENT_PROBABILITY = 0.04;
 const ACCENT_PALETTE = [
-  { r: 210, g: 178, b: 128 }, // arena medio-oscuro
-  { r: 195, g: 162, b: 108 }, // arena tostado
-  { r: 178, g: 142, b:  92 }, // ocre suave
+  { r: 210, g: 178, b: 128 },
+  { r: 195, g: 162, b: 108 },
+  { r: 178, g: 142, b:  92 },
 ];
 
-// Paleta de "brillo": colores vivos con los que cada fibra parpadea en el
-// estado cuerpo. La idea es que la figura humana brille en colores
-// distintos al mismo tiempo (coral, ámbar, menta, celeste, lavanda, rosa…).
-const SHINE_PALETTE = [
-  { r: 255, g: 110, b:  88 },  // coral
-  { r: 255, g: 175, b:  70 },  // ámbar
-  { r: 240, g: 230, b: 110 },  // amarillo cálido
-  { r: 130, g: 240, b: 150 },  // menta
-  { r:  95, g: 200, b: 255 },  // celeste
-  { r: 200, g: 140, b: 255 },  // lavanda
-  { r: 255, g: 140, b: 215 },  // rosa
-  { r: 255, g: 230, b: 200 },  // blanco cálido
-];
-const SHINE_PROBABILITY  = 0.28;  // barniz húmedo, no neón
+// Brillo del cuerpo: sólo la paleta de la pieza.
+const SHINE_PALETTE = PALETTE_RGB.slice();
+const SHINE_PROBABILITY  = 0.22;
 const SHINE_RATE_MIN     = 0.010;
 const SHINE_RATE_MAX     = 0.022;
 const SHINE_SHARP_MIN    = 5;
 const SHINE_SHARP_MAX    = 10;
-const SHINE_MIX_MAX      = 0.28;  // highlight del propio color, no otra tinta
+const SHINE_MIX_MAX      = 0.22;
 const SHINE_BODY_THRESH  = 0.55;
-const SHINE_ALPHA_BOOST  = 0.22;
+const SHINE_ALPHA_BOOST  = 0.18;
 
-// Pulso SOLO del corazón (no del cuerpo completo). Multiplica alpha de
-// las fibras cercanas al pecho y la escala del órgano dibujado.
-const BODY_PULSE_AMOUNT  = 0.18;
-const BODY_PULSE_SCALE   = 0.022;
-const HEART_PULSE_SCALE  = 0.14;
+// Pulso SOLO del corazón. El cuerpo no se escala ni respira.
+const BODY_PULSE_AMOUNT  = 0.16;
+const HEART_PULSE_SPEED  = 0.04;
+const HEART_PULSE_SCALE  = 0.04;
+const HEART_GLOW_ALPHA   = 0.20;
+const HEART_GLOW_RADIUS  = 16;
 
 // ============ COLOR DIARIO DEL CORAZÓN ============
 // Un color estable por fecha local: mismo día = mismo color,
@@ -228,13 +236,14 @@ const HEART_DUB_STRENGTH = 0.42;
 // para que ningún subjump del audio rebote en lo visual.
 const HEART_PULSE_SMOOTH = 0.22;
 
-// ============ MOVIMIENTO GLOBAL DEL CUERPO (solo al final) ============
-const BODY_SWAY_X_AMP    = 4.0;
-const BODY_SWAY_Y_AMP    = 1.8;
-const BODY_SWAY_SPEED    = 0.0055;
-const BODY_BREATH_SCALE_X = 0.0060;
-const BODY_BREATH_SCALE_Y = 0.0100;
-const BODY_BREATH_SPEED   = 0.0120;
+// ============ MOVIMIENTO GLOBAL DEL CUERPO ============
+// Desactivado: sólo pulsa el corazón. Sin sway ni respiración global.
+const BODY_SWAY_X_AMP    = 0;
+const BODY_SWAY_Y_AMP    = 0;
+const BODY_SWAY_SPEED    = 0;
+const BODY_BREATH_SCALE_X = 0;
+const BODY_BREATH_SCALE_Y = 0;
+const BODY_BREATH_SPEED   = 0;
 
 // ============ FIBRAS — DINÁMICA ============
 // Movimiento más suave: noise speed más lento y wander más chico, así
@@ -249,12 +258,12 @@ const FIBER_ALPHA_MULT   = 0.90;
 const FIBER_WEIGHT_MULT  = 0.82;
 
 // ============ FIBRAS — MUESTREO ============
-const FIBERS_PER_BODY    = 1100;
-const FIBER_DENSITY_MIN  = 32;
+const FIBERS_PER_BODY    = 1800;
+const FIBER_DENSITY_MIN  = 28;
 const FIBER_ACCEPT_GAIN  = 1.0;
-const FIBER_ALPHA_BASE   = 16;
-const FIBER_WEIGHT_MIN   = 0.28;
-const FIBER_WEIGHT_MAX   = 0.78;
+const FIBER_ALPHA_BASE   = 22;
+const FIBER_WEIGHT_MIN   = 0.32;
+const FIBER_WEIGHT_MAX   = 0.92;
 const FIBER_HISTORY      = 8;
 
 // ============ VIAJE / RASTRO ============
@@ -269,9 +278,14 @@ const MORPH_HIGH_LIMIT        = 0.85;
 // latido (lub-dub). El avión está PROGRAMADO: frecuencias y volumen
 // suben (engines spooling up), pico, y caída con leve Doppler al final.
 // A los AIRPLANE_DURATION segundos el master del avión queda en 0.
+// Flyover de avión ANTES de que aparezca el cuerpo: ruido filtrado +
+// tono bajo + paneo estéreo. Volumen bajo, más ambiental que agresivo.
 const AUDIO_MASTER_VOL  = 0.85;
 const HEARTBEAT_BPM     = 68;
 const AIRPLANE_DURATION = 7;
+const PLANE_VOLUME      = 0.18;
+const PLANE_FADE_IN     = 2.0;
+const PLANE_FADE_OUT    = 2.5;
 let audioCtx               = null;
 let audioMasterGain        = null;
 let airplaneGain           = null;
@@ -291,7 +305,7 @@ let bodies = [];
 ========================================================= */
 
 function preload() {
-  bodyRefImg = loadImage("/apps/anatomia-de-la-distancia/assets/anatomia-plastico.png?v=635");
+  bodyRefImg = loadImage("/apps/anatomia-de-la-distancia/assets/anatomia-plastico.png?v=636");
 }
 
 function setup() {
@@ -436,277 +450,118 @@ function buildAirplaneSound() {
   airplaneGain = audioCtx.createGain();
   airplaneGain.gain.value = 0;
 
-  // Compresor para mantener todo bajo control cuando todas las capas
-  // suben juntas en el pico del despegue.
-  const comp = audioCtx.createDynamicsCompressor();
-  comp.threshold.value = -10;
-  comp.ratio.value = 4.5;
-  comp.attack.value = 0.01;
-  comp.release.value = 0.25;
-  airplaneGain.connect(comp);
-  comp.connect(audioMasterGain);
+  let panner = null;
+  if (audioCtx.createStereoPanner) {
+    panner = audioCtx.createStereoPanner();
+    panner.pan.value = -0.85;
+    airplaneGain.connect(panner);
+    panner.connect(audioMasterGain);
+  } else {
+    airplaneGain.connect(audioMasterGain);
+  }
 
-  // CAPA 0 — SUB-BASS DE TRUENOS (sine, ~26-46Hz). Un takeoff real hace
-  // VIBRAR las ventanas: este sub-bass aporta esa sensación física en el
-  // bajo. Crece dramáticamente con el throttle.
-  const sub = audioCtx.createOscillator();
-  sub.type = "sine";
-  sub.frequency.value = 26;
-  const subGain = audioCtx.createGain();
-  subGain.gain.value = 0;             // arranca en 0, se programa en el schedule
-  sub.connect(subGain);
-  subGain.connect(airplaneGain);
-
-  // CAPA 1 — RUMBLE GRAVE (saw 50-60Hz, dos osciladores desafinados +
-  // lowpass). Es el cuerpo medio-grave del motor. Sin chop: jet smooth.
-  const low1 = audioCtx.createOscillator();
-  low1.type = "sawtooth";
-  low1.frequency.value = 54;
-  const low2 = audioCtx.createOscillator();
-  low2.type = "sawtooth";
-  low2.frequency.value = 62;
-  const lowFilt = audioCtx.createBiquadFilter();
-  lowFilt.type = "lowpass";
-  lowFilt.frequency.value = 280;
-  const lowGain = audioCtx.createGain();
-  lowGain.gain.value = 0;             // se programa en el schedule
-  low1.connect(lowFilt);
-  low2.connect(lowFilt);
-  lowFilt.connect(lowGain);
-  lowGain.connect(airplaneGain);
-
-  // CAPA 2 — RUMBLE MEDIO (saw ~165Hz, lowpass). Suma cuerpo y "growl"
-  // sin tapar el sub. También con chop=0 (jet, no prop).
-  const mid = audioCtx.createOscillator();
-  mid.type = "sawtooth";
-  mid.frequency.value = 165;
-  const midFilt = audioCtx.createBiquadFilter();
-  midFilt.type = "lowpass";
-  midFilt.frequency.value = 850;
-  midFilt.Q.value = 1.6;
-  const midGain = audioCtx.createGain();
-  midGain.gain.value = 0.50;
-  mid.connect(midFilt);
-  midFilt.connect(midGain);
-  midGain.connect(airplaneGain);
-
-  // CAPA 3 — TURBINA (saw bandpass). El "WHEEEEEEE" es la firma
-  // inconfundible. Aquí gana protagonismo con vibrato sutil.
-  const whine = audioCtx.createOscillator();
-  whine.type = "sawtooth";
-  whine.frequency.value = 950;
-  const whineFilt = audioCtx.createBiquadFilter();
-  whineFilt.type = "bandpass";
-  whineFilt.frequency.value = 1300;
-  whineFilt.Q.value = 4.5;
-  const whineGain = audioCtx.createGain();
-  whineGain.gain.value = 0.55;
-  whine.connect(whineFilt);
-  whineFilt.connect(whineGain);
-  whineGain.connect(airplaneGain);
-
-  // Vibrato muy sutil para que la turbina no suene como un sintetizador
-  // estático: simula la fluctuación natural de los compressor stages.
-  const whineLfo = audioCtx.createOscillator();
-  whineLfo.frequency.value = 0.55;
-  const whineLfoAmt = audioCtx.createGain();
-  whineLfoAmt.gain.value = 38;
-  whineLfo.connect(whineLfoAmt);
-  whineLfoAmt.connect(whine.frequency);
-
-  // CAPA 3b — ARMÓNICO DE LA TURBINA (octava arriba). Le da el "sneer"
-  // metálico característico de un jet a full thrust.
-  const whineHarm = audioCtx.createOscillator();
-  whineHarm.type = "sawtooth";
-  whineHarm.frequency.value = 1900;
-  const whineHarmFilt = audioCtx.createBiquadFilter();
-  whineHarmFilt.type = "bandpass";
-  whineHarmFilt.frequency.value = 2200;
-  whineHarmFilt.Q.value = 5;
-  const whineHarmGain = audioCtx.createGain();
-  whineHarmGain.gain.value = 0.22;
-  whineHarm.connect(whineHarmFilt);
-  whineHarmFilt.connect(whineHarmGain);
-  whineHarmGain.connect(airplaneGain);
-
-  // Buffer de ruido blanco compartido por las dos capas de aire.
   const noiseBuf = audioCtx.createBuffer(1, audioCtx.sampleRate * 2, audioCtx.sampleRate);
   const data = noiseBuf.getChannelData(0);
   for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
 
-  // CAPA 4 — RUIDO DE MOTOR (bandpass medio, el "GROAR"). Programable:
-  // crece dramáticamente con el throttle. Es el roar del motor.
-  const noise = audioCtx.createBufferSource();
-  noise.buffer = noiseBuf;
-  noise.loop = true;
-  const noiseFilt = audioCtx.createBiquadFilter();
-  noiseFilt.type = "bandpass";
-  noiseFilt.frequency.value = 700;
-  noiseFilt.Q.value = 0.55;
-  const noiseGain = audioCtx.createGain();
-  noiseGain.gain.value = 0;           // se programa en el schedule
-  noise.connect(noiseFilt);
-  noiseFilt.connect(noiseGain);
-  noiseGain.connect(airplaneGain);
+  // Capa 1 — rumble grave: ruido lowpass. El cuerpo del jet a lo lejos.
+  const rumble = audioCtx.createBufferSource();
+  rumble.buffer = noiseBuf;
+  rumble.loop = true;
+  const rumbleFilt = audioCtx.createBiquadFilter();
+  rumbleFilt.type = "lowpass";
+  rumbleFilt.frequency.value = 160;
+  rumbleFilt.Q.value = 0.7;
+  const rumbleGain = audioCtx.createGain();
+  rumbleGain.gain.value = 0.55;
+  rumble.connect(rumbleFilt);
+  rumbleFilt.connect(rumbleGain);
+  rumbleGain.connect(airplaneGain);
 
-  // LFO sutil sobre el filtro de ruido para que el roar no sea estático.
-  const noiseLfo = audioCtx.createOscillator();
-  noiseLfo.frequency.value = 0.16;
-  const noiseLfoAmt = audioCtx.createGain();
-  noiseLfoAmt.gain.value = 220;
-  noiseLfo.connect(noiseLfoAmt);
-  noiseLfoAmt.connect(noiseFilt.frequency);
+  // Capa 2 — núcleo del jet: ruido bandpass medio, continuo, no gritón.
+  const jet = audioCtx.createBufferSource();
+  jet.buffer = noiseBuf;
+  jet.loop = true;
+  const jetFilt = audioCtx.createBiquadFilter();
+  jetFilt.type = "bandpass";
+  jetFilt.frequency.value = 420;
+  jetFilt.Q.value = 0.85;
+  const jetGain = audioCtx.createGain();
+  jetGain.gain.value = 0.42;
+  jet.connect(jetFilt);
+  jetFilt.connect(jetGain);
+  jetGain.connect(airplaneGain);
 
-  // CAPA 5 — VIENTO / AIRE (highpass alto, el "WHOOOSH"). Programable:
-  // arranca casi inaudible y crece a una pared de viento al despegar.
-  // Es el aire siendo desgarrado por el avión a velocidad de despegue.
-  const wind = audioCtx.createBufferSource();
-  wind.buffer = noiseBuf;
-  wind.loop = true;
-  const windFilt = audioCtx.createBiquadFilter();
-  windFilt.type = "highpass";
-  windFilt.frequency.value = 1900;
-  windFilt.Q.value = 0.5;
-  const windGain = audioCtx.createGain();
-  windGain.gain.value = 0;            // se programa en el schedule
-  wind.connect(windFilt);
-  windFilt.connect(windGain);
-  windGain.connect(airplaneGain);
+  // Capa 3 — turbina lejana: bandpass más alto, muy bajo de volumen.
+  const turbine = audioCtx.createBufferSource();
+  turbine.buffer = noiseBuf;
+  turbine.loop = true;
+  const turbineFilt = audioCtx.createBiquadFilter();
+  turbineFilt.type = "bandpass";
+  turbineFilt.frequency.value = 1400;
+  turbineFilt.Q.value = 2.2;
+  const turbineGain = audioCtx.createGain();
+  turbineGain.gain.value = 0.08;
+  turbine.connect(turbineFilt);
+  turbineFilt.connect(turbineGain);
+  turbineGain.connect(airplaneGain);
+
+  // Capa 4 — tono bajo continuo (motor). Sine suave, sin saw agresivo.
+  const drone = audioCtx.createOscillator();
+  drone.type = "sine";
+  drone.frequency.value = 58;
+  const droneGain = audioCtx.createGain();
+  droneGain.gain.value = 0.12;
+  drone.connect(droneGain);
+  droneGain.connect(airplaneGain);
 
   const t = audioCtx.currentTime;
-  sub.start(t);
-  low1.start(t);
-  low2.start(t);
-  mid.start(t);
-  whine.start(t);
-  whineHarm.start(t);
-  whineLfo.start(t);
-  noise.start(t);
-  noiseLfo.start(t);
-  wind.start(t);
+  rumble.start(t);
+  jet.start(t);
+  turbine.start(t);
+  drone.start(t);
 
-  // Guardamos refs a frecuencias y gains que la secuencia de despegue
-  // tiene que modular. Las capas con gain dinámico (sub, low, noise,
-  // wind) se programan junto con las frecuencias para crear el spool-up.
   airplane = {
-    sub, low1, low2, mid, whine, whineHarm,
-    subGain, lowGain, noiseGain, windGain
+    panner, rumbleFilt, jetFilt, turbineFilt, drone,
+    rumbleGain, jetGain, turbineGain, droneGain
   };
 }
 
-// Programa la secuencia de despegue (7 segundos):
-//
-//  Anatomía de un takeoff real:
-//   0.0–0.4s  Engines start: idle suave, sólo un rumble bajo.
-//   0.4–2.0s  THROTTLE UP: en este momento el avión "ruge". Las
-//             frecuencias y todas las capas (sub, rumble, ruido,
-//             viento) trepan rápido. Es el momento más identificable.
-//   2.0–4.5s  Full thrust: la turbina llega a su pico, el sub vibra,
-//             el viento es una pared. El avión está despegando.
-//   4.5–6.0s  Climb: se mantiene a full mientras "pasa" cerca.
-//   6.0–7.0s  Departure / Doppler: frecuencias bajan (avión que se
-//             aleja), todas las capas decaen a 0.
-//   t > 7s    SILENCIO ABSOLUTO.
+// Flyover: entra, cruza a volumen moderado, se aleja. Doppler suave.
 function scheduleAirplaneTakeoff(t0) {
-  if (!airplane.low1) return;
+  if (!airplane.drone) return;
 
-  // Cancelamos cualquier rampa previa antes de re-programar.
   airplaneGain.gain.cancelScheduledValues(t0);
-  airplane.sub.frequency.cancelScheduledValues(t0);
-  airplane.low1.frequency.cancelScheduledValues(t0);
-  airplane.low2.frequency.cancelScheduledValues(t0);
-  airplane.mid.frequency.cancelScheduledValues(t0);
-  airplane.whine.frequency.cancelScheduledValues(t0);
-  airplane.whineHarm.frequency.cancelScheduledValues(t0);
-  airplane.subGain.gain.cancelScheduledValues(t0);
-  airplane.lowGain.gain.cancelScheduledValues(t0);
-  airplane.noiseGain.gain.cancelScheduledValues(t0);
-  airplane.windGain.gain.cancelScheduledValues(t0);
+  if (airplane.panner) airplane.panner.pan.cancelScheduledValues(t0);
+  airplane.drone.frequency.cancelScheduledValues(t0);
+  airplane.jetFilt.frequency.cancelScheduledValues(t0);
+  airplane.turbineFilt.frequency.cancelScheduledValues(t0);
 
-  // === FRECUENCIAS — todas las capas spoolean al mismo tiempo ===
+  const dur = AIRPLANE_DURATION;
+  const peakEnd = Math.max(PLANE_FADE_IN + 0.4, dur - PLANE_FADE_OUT);
 
-  // Sub-bass de truenos: 26 → 48 Hz (vibración profunda).
-  airplane.sub.frequency.setValueAtTime(26, t0);
-  airplane.sub.frequency.linearRampToValueAtTime(48, t0 + 3.5);
-  airplane.sub.frequency.linearRampToValueAtTime(48, t0 + 5.5);
-  airplane.sub.frequency.linearRampToValueAtTime(34, t0 + 7);
-
-  // Rumble grave: 32 → 60 Hz.
-  airplane.low1.frequency.setValueAtTime(32, t0);
-  airplane.low1.frequency.linearRampToValueAtTime(60, t0 + 3.5);
-  airplane.low1.frequency.linearRampToValueAtTime(60, t0 + 5.5);
-  airplane.low1.frequency.linearRampToValueAtTime(46, t0 + 7);
-
-  airplane.low2.frequency.setValueAtTime(36, t0);
-  airplane.low2.frequency.linearRampToValueAtTime(66, t0 + 3.5);
-  airplane.low2.frequency.linearRampToValueAtTime(66, t0 + 5.5);
-  airplane.low2.frequency.linearRampToValueAtTime(52, t0 + 7);
-
-  // Rumble medio: 90 → 230 Hz.
-  airplane.mid.frequency.setValueAtTime(90, t0);
-  airplane.mid.frequency.linearRampToValueAtTime(230, t0 + 3.5);
-  airplane.mid.frequency.linearRampToValueAtTime(230, t0 + 5.5);
-  airplane.mid.frequency.linearRampToValueAtTime(170, t0 + 7);
-
-  // TURBINA — barrido más amplio (260 → 1700 Hz). Esto es el "WHEEEE"
-  // que el oído reconoce inmediatamente como avión despegando.
-  airplane.whine.frequency.setValueAtTime(260, t0);
-  airplane.whine.frequency.linearRampToValueAtTime(1700, t0 + 3.5);
-  airplane.whine.frequency.linearRampToValueAtTime(1700, t0 + 5.5);
-  airplane.whine.frequency.linearRampToValueAtTime(1100, t0 + 7);
-
-  // Armónico (octava arriba) — el sneer metálico.
-  airplane.whineHarm.frequency.setValueAtTime(520, t0);
-  airplane.whineHarm.frequency.linearRampToValueAtTime(3400, t0 + 3.5);
-  airplane.whineHarm.frequency.linearRampToValueAtTime(3400, t0 + 5.5);
-  airplane.whineHarm.frequency.linearRampToValueAtTime(2200, t0 + 7);
-
-  // === GAINS DE CAPAS — el spool-up dinámico ===
-  //
-  // Cada capa tiene su propio crecimiento. El sub-bass arranca de cero
-  // y sube fuerte (las ventanas vibran sólo a full thrust). El ruido
-  // de motor empieza bajo y se vuelve un GROAR. El viento es lo último
-  // que aparece (sólo a velocidad de despegue) y es lo primero que
-  // se va con el Doppler.
-
-  // Sub-bass: imperceptible al inicio, masivo en el pico.
-  airplane.subGain.gain.setValueAtTime(0.0, t0);
-  airplane.subGain.gain.linearRampToValueAtTime(0.55, t0 + 3.0);
-  airplane.subGain.gain.linearRampToValueAtTime(0.55, t0 + 5.5);
-  airplane.subGain.gain.linearRampToValueAtTime(0.0, t0 + 7);
-
-  // Rumble grave: idle bajo (0.18) → roar fuerte (0.85).
-  airplane.lowGain.gain.setValueAtTime(0.18, t0);
-  airplane.lowGain.gain.linearRampToValueAtTime(0.85, t0 + 2.5);
-  airplane.lowGain.gain.linearRampToValueAtTime(0.85, t0 + 5.5);
-  airplane.lowGain.gain.linearRampToValueAtTime(0.0, t0 + 7);
-
-  // Ruido de motor (GROAR): el alma del takeoff. Arranca tibio,
-  // explota a full thrust.
-  airplane.noiseGain.gain.setValueAtTime(0.18, t0);
-  airplane.noiseGain.gain.linearRampToValueAtTime(0.95, t0 + 2.8);
-  airplane.noiseGain.gain.linearRampToValueAtTime(0.95, t0 + 5.5);
-  airplane.noiseGain.gain.linearRampToValueAtTime(0.0, t0 + 7);
-
-  // Viento: tarda más en aparecer (sólo a velocidad de despegue) y se
-  // va primero con el Doppler.
-  airplane.windGain.gain.setValueAtTime(0.0, t0);
-  airplane.windGain.gain.linearRampToValueAtTime(0.55, t0 + 3.5);
-  airplane.windGain.gain.linearRampToValueAtTime(0.55, t0 + 5.0);
-  airplane.windGain.gain.linearRampToValueAtTime(0.0, t0 + 6.5);
-
-  // === MASTER — envelope general ===
-  //  · 0–0.3s:  engines start (gain → 0.25).
-  //  · 0.3–2.0s: throttle UP rápido (0.25 → 0.95).
-  //  · 2.0–5.5s: full thrust hold.
-  //  · 5.5–7.0s: Doppler departure (0.95 → 0).
-  //  · t > 7s:   silencio absoluto.
   airplaneGain.gain.setValueAtTime(0, t0);
-  airplaneGain.gain.linearRampToValueAtTime(0.25, t0 + 0.3);
-  airplaneGain.gain.linearRampToValueAtTime(0.95, t0 + 2.0);
-  airplaneGain.gain.linearRampToValueAtTime(0.95, t0 + 5.5);
-  airplaneGain.gain.linearRampToValueAtTime(0, t0 + AIRPLANE_DURATION);
-  airplaneGain.gain.setValueAtTime(0, t0 + AIRPLANE_DURATION + 0.01);
+  airplaneGain.gain.linearRampToValueAtTime(PLANE_VOLUME, t0 + PLANE_FADE_IN);
+  airplaneGain.gain.linearRampToValueAtTime(PLANE_VOLUME * 0.92, t0 + peakEnd);
+  airplaneGain.gain.linearRampToValueAtTime(0, t0 + dur);
+  airplaneGain.gain.setValueAtTime(0, t0 + dur + 0.02);
+
+  if (airplane.panner) {
+    airplane.panner.pan.setValueAtTime(-0.88, t0);
+    airplane.panner.pan.linearRampToValueAtTime(0.88, t0 + dur);
+  }
+
+  airplane.drone.frequency.setValueAtTime(52, t0);
+  airplane.drone.frequency.linearRampToValueAtTime(64, t0 + PLANE_FADE_IN + 0.8);
+  airplane.drone.frequency.linearRampToValueAtTime(44, t0 + dur);
+
+  airplane.jetFilt.frequency.setValueAtTime(320, t0);
+  airplane.jetFilt.frequency.linearRampToValueAtTime(560, t0 + PLANE_FADE_IN + 0.6);
+  airplane.jetFilt.frequency.linearRampToValueAtTime(260, t0 + dur);
+
+  airplane.turbineFilt.frequency.setValueAtTime(1100, t0);
+  airplane.turbineFilt.frequency.linearRampToValueAtTime(1650, t0 + PLANE_FADE_IN + 0.5);
+  airplane.turbineFilt.frequency.linearRampToValueAtTime(900, t0 + dur);
 }
 
 function buildHeartbeatSound() {
@@ -863,12 +718,57 @@ function bodyMotionStrength() {
 }
 
 function getBodyMotion(frame) {
-  const swayX = Math.sin(frame * BODY_SWAY_SPEED) * BODY_SWAY_X_AMP;
-  const swayY = Math.cos(frame * BODY_SWAY_SPEED * 0.85) * BODY_SWAY_Y_AMP;
-  const breath = Math.sin(frame * BODY_BREATH_SPEED);
-  const scaleX = 1 + breath * BODY_BREATH_SCALE_X;
-  const scaleY = 1 + breath * BODY_BREATH_SCALE_Y;
-  return { swayX, swayY, breath, scaleX, scaleY };
+  return { swayX: 0, swayY: 0, breath: 0, scaleX: 1, scaleY: 1 };
+}
+
+function pickBodyPaletteIndex(r, g, b, nx, ny) {
+  const hdx = (nx - HEART_NX) / HEART_RX;
+  const hdy = (ny - HEART_NY) / HEART_RY;
+  if (hdx * hdx + hdy * hdy < 1.05) return 4;
+
+  const maxC = Math.max(r, g, b);
+  const minC = Math.min(r, g, b);
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  const sat = maxC < 1 ? 0 : (maxC - minC) / maxC;
+  const d = maxC - minC;
+  let hue = 0;
+  if (d > 3) {
+    if (maxC === r) hue = 60 * (((g - b) / d) % 6);
+    else if (maxC === g) hue = 60 * ((b - r) / d + 2);
+    else hue = 60 * ((r - g) / d + 4);
+    if (hue < 0) hue += 360;
+  }
+
+  if (sat < 0.14) {
+    if (lum < 0.32) return 3;
+    if (lum > 0.78) return 2;
+    return 1;
+  }
+  if (hue < 18 || hue >= 330) return 2;
+  if (hue < 58) return 5;
+  if (hue < 155) return 1;
+  if (hue < 255) return 0;
+  if (hue < 295) return 1;
+  return 2;
+}
+
+function shadePaletteColor(pal, lum) {
+  const shadow = PALETTE_RGB[3];
+  if (lum < 0.42) {
+    const t = lum / 0.42;
+    return {
+      r: lerp(shadow.r * 0.28, pal.r, t),
+      g: lerp(shadow.g * 0.28, pal.g, t),
+      b: lerp(shadow.b * 0.28, pal.b, t)
+    };
+  }
+  const t = (lum - 0.42) / 0.58;
+  const hi = Math.min(1, t * 0.62);
+  return {
+    r: lerp(pal.r, Math.min(255, pal.r * 0.55 + 170), hi),
+    g: lerp(pal.g, Math.min(255, pal.g * 0.55 + 155), hi),
+    b: lerp(pal.b, Math.min(255, pal.b * 0.55 + 130), hi)
+  };
 }
 
 function heartInfluence(lx, ly, bodyW, bodyH) {
@@ -911,7 +811,7 @@ function draw() {
   // Fondo dinámico: durante la transición se borra menos para que se
   // vean los rastros del desamarre.
   const morphing = isMorphingNow();
-  const bgAlpha = morphing ? 32 : 58;
+  const bgAlpha = morphing ? 48 : 90;
   background(BG_R, BG_G, BG_B, bgAlpha);
 
   // Morph desde la línea de tiempo interna.
@@ -928,7 +828,7 @@ function draw() {
   }
 
   // 1) Anatomía de plástico. Aparece durante el morph.
-  const bodyBaseAlpha = smoothstep(0.30, 0.90, morphSmoothed) * BODY_BASE_MAX_ALPHA;
+  const bodyBaseAlpha = smoothstep(0.22, 0.88, morphSmoothed) * BODY_BASE_MAX_ALPHA;
   for (const body of bodies) body.drawBase(bodyBaseAlpha);
 
   // 2) Ovillo de lana que viaja hacia la anatomía.
@@ -937,8 +837,12 @@ function draw() {
   for (const body of bodies) body.drawFibers();
   drawingContext.restore();
 
-  // 3) Corazón del día: color estable, glow y ramificaciones. Pulsa solo él.
-  for (const body of bodies) body.drawHeart();
+  // 3) Ramas coralinas integradas + corazón escultórico (único que pulsa).
+  for (const body of bodies) {
+    body.drawMasses(bodyBaseAlpha);
+    body.drawCoral(bodyBaseAlpha);
+    body.drawHeart();
+  }
 
   if (SHOW_DEBUG_PARAMS) drawDebugOverlay(rawProgress, bodyBaseAlpha, isMorphingNow());
   drawTitle();
@@ -962,9 +866,9 @@ class AnimatedBody {
     this.phase = phase;
 
     const aspect = bodyRefImg.width / bodyRefImg.height;
-    let h = min(height * 0.88, 1040);
+    let h = min(height * 0.90, 1080);
     let w = h * aspect;
-    const maxW = width * 0.72;
+    const maxW = width * 0.58;
     if (w > maxW) { w = maxW; h = w / aspect; }
 
     this.bodyW = w;
@@ -972,6 +876,8 @@ class AnimatedBody {
 
     this.buildMaster();
     this.buildFibers();
+    this.buildCoral();
+    this.buildMasses();
   }
 
   buildMaster() {
@@ -988,12 +894,27 @@ class AnimatedBody {
     const lim = 42 * 42 * 3;
     const px = g.pixels;
     const n = g.width * g.height;
+    const mw = g.width;
+    const mh = g.height;
     for (let i = 0; i < n; i++) {
       const o = i * 4;
       const dr = px[o] - skyR;
       const dg = px[o + 1] - skyG;
       const db = px[o + 2] - skyB;
-      if (dr * dr + dg * dg + db * db < lim) px[o + 3] = 0;
+      if (dr * dr + dg * dg + db * db < lim) {
+        px[o + 3] = 0;
+        continue;
+      }
+      const lx = i % mw;
+      const ly = floor(i / mw);
+      const nx = lx / mw;
+      const ny = ly / mh;
+      const lum = (0.299 * px[o] + 0.587 * px[o + 1] + 0.114 * px[o + 2]) / 255;
+      const pal = PALETTE_RGB[pickBodyPaletteIndex(px[o], px[o + 1], px[o + 2], nx, ny)];
+      const col = shadePaletteColor(pal, lum);
+      px[o]     = constrain(col.r, 0, 255);
+      px[o + 1] = constrain(col.g, 0, 255);
+      px[o + 2] = constrain(col.b, 0, 255);
     }
     g.updatePixels();
     this.master = g;
@@ -1071,9 +992,8 @@ class AnimatedBody {
   }
 
   drawFibers() {
-    const motionStrength = bodyMotionStrength();
     this.heartWorld = this.toWorld(
-      this.bodyW * HEART_NX, this.bodyH * HEART_NY, motionStrength
+      this.bodyW * HEART_NX, this.bodyH * HEART_NY, 0
     );
     for (const f of this.fibers) {
       f.update();
@@ -1081,67 +1001,182 @@ class AnimatedBody {
     }
   }
 
+  buildCoral() {
+    this.coral = [];
+    const seeds = [
+      { nx: 0.47, ny: 0.07, ang: -1.95, len: 0.11, gen: 4, spread: 0.95 },
+      { nx: 0.54, ny: 0.08, ang: -1.22, len: 0.11, gen: 4, spread: 0.95 },
+      { nx: 0.40, ny: 0.17, ang: -2.45, len: 0.09, gen: 3, spread: 0.75 },
+      { nx: 0.63, ny: 0.18, ang: -0.62, len: 0.09, gen: 3, spread: 0.75 },
+      { nx: 0.34, ny: 0.26, ang: -2.75, len: 0.08, gen: 3, spread: 0.65 },
+      { nx: 0.70, ny: 0.27, ang: -0.38, len: 0.08, gen: 3, spread: 0.65 },
+      { nx: 0.50, ny: 0.21, ang: -1.58, len: 0.06, gen: 3, spread: 0.55 },
+      { nx: 0.39, ny: 0.47, ang:  2.45, len: 0.07, gen: 3, spread: 0.58 },
+      { nx: 0.61, ny: 0.47, ang:  0.68, len: 0.07, gen: 3, spread: 0.58 },
+      { nx: 0.41, ny: 0.66, ang:  2.70, len: 0.075, gen: 3, spread: 0.52 },
+      { nx: 0.59, ny: 0.68, ang:  0.42, len: 0.075, gen: 3, spread: 0.52 },
+      { nx: 0.44, ny: 0.88, ang:  2.15, len: 0.05, gen: 3, spread: 0.45 },
+      { nx: 0.56, ny: 0.90, ang:  0.95, len: 0.05, gen: 3, spread: 0.45 }
+    ];
+    for (const s of seeds) {
+      this.growCoral(
+        s.nx * this.bodyW, s.ny * this.bodyH,
+        s.ang, this.bodyH * s.len, 0, s.gen, s.spread
+      );
+    }
+  }
+
+  growCoral(x, y, ang, len, depth, maxDepth, spread) {
+    if (depth >= maxDepth || len < 2.5) return;
+    const segs = 4 + floor(random(4));
+    const pts = [{ x, y }];
+    let px = x, py = y, a = ang;
+    for (let i = 0; i < segs; i++) {
+      a += random(-0.32, 0.32) * spread;
+      px += Math.cos(a) * (len / segs);
+      py += Math.sin(a) * (len / segs);
+      pts.push({ x: px, y: py });
+    }
+    const palI = depth === 0
+      ? (random() < 0.45 ? 2 : (random() < 0.5 ? 1 : 0))
+      : floor(random(PALETTE_RGB.length));
+    this.coral.push({
+      pts,
+      w: lerp(2.6, 0.32, depth / maxDepth),
+      color: PALETTE_RGB[palI],
+      depth
+    });
+    const splits = depth < 2 ? 2 : (random() < 0.7 ? 2 : 1);
+    for (let k = 0; k < splits; k++) {
+      const da = (k === 0 ? -1 : 1) * random(0.32, 0.88) * spread;
+      this.growCoral(px, py, a + da, len * random(0.52, 0.74), depth + 1, maxDepth, spread);
+    }
+  }
+
+  buildMasses() {
+    this.masses = [
+      { nx: 0.38, ny: 0.255, rx: 0.042, ry: 0.032, pal: 1 },
+      { nx: 0.66, ny: 0.255, rx: 0.042, ry: 0.032, pal: 0 },
+      { nx: 0.49, ny: 0.375, rx: 0.048, ry: 0.036, pal: 5 },
+      { nx: 0.42, ny: 0.455, rx: 0.038, ry: 0.030, pal: 3 },
+      { nx: 0.58, ny: 0.455, rx: 0.038, ry: 0.030, pal: 2 }
+    ];
+  }
+
+  drawMasses(alpha) {
+    if (alpha < 0.02) return;
+    const ctx = drawingContext;
+    ctx.save();
+    for (const m of this.masses) {
+      const c = this.toWorld(m.nx * this.bodyW, m.ny * this.bodyH, 0);
+      const pal = PALETTE_RGB[m.pal];
+      const rx = this.bodyW * m.rx;
+      const ry = this.bodyH * m.ry;
+      const grd = ctx.createRadialGradient(c.x - rx * 0.25, c.y - ry * 0.3, 0, c.x, c.y, Math.max(rx, ry));
+      grd.addColorStop(0, `rgba(${Math.min(255, pal.r + 40)},${Math.min(255, pal.g + 28)},${Math.min(255, pal.b + 18)},${0.42 * alpha})`);
+      grd.addColorStop(0.65, `rgba(${pal.r},${pal.g},${pal.b},${0.22 * alpha})`);
+      grd.addColorStop(1, `rgba(${pal.r},${pal.g},${pal.b},0)`);
+      ctx.fillStyle = grd;
+      ctx.beginPath();
+      ctx.ellipse(c.x, c.y, rx, ry, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  drawCoral(alpha) {
+    if (alpha < 0.02 || !this.coral) return;
+    const ctx = drawingContext;
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    for (const br of this.coral) {
+      const a = alpha * lerp(0.62, 0.20, br.depth / 4);
+      ctx.strokeStyle = `rgba(${br.color.r},${br.color.g},${br.color.b},${a})`;
+      ctx.lineWidth = br.w;
+      ctx.beginPath();
+      for (let i = 0; i < br.pts.length; i++) {
+        const w = this.toWorld(br.pts[i].x, br.pts[i].y, 0);
+        if (i === 0) ctx.moveTo(w.x, w.y);
+        else ctx.lineTo(w.x, w.y);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   drawHeart() {
     const appear = smoothstep(0.32, 0.78, morphSmoothed);
     if (appear < 0.01) return;
 
     const intro = heartIntro * heartIntro * (3 - 2 * heartIntro);
-    const motionStrength = bodyMotionStrength();
-    const origin = this.toWorld(this.bodyW * HEART_NX, this.bodyH * HEART_NY, motionStrength);
+    const origin = this.toWorld(this.bodyW * HEART_NX, this.bodyH * HEART_NY, 0);
+    const pulse = 1 + heartbeatPulseValue * HEART_PULSE_SCALE;
+    const introScale = lerp(0.88, 1, intro);
+    const unit = this.bodyH * 0.026 * pulse * introScale;
 
-    const pulseScale = 1 + heartbeatPulseValue * HEART_PULSE_SCALE;
-    const introScale = lerp(0.74, 1, intro);
-    const s = this.bodyH * 0.00515 * pulseScale * introScale;
+    const base = PALETTE_RGB[4];
+    const mixR = lerp(base.r, heartRGB.r, 0.38);
+    const mixG = lerp(base.g, heartRGB.g, 0.38);
+    const mixB = lerp(base.b, heartRGB.b, 0.38);
 
     const ctx = drawingContext;
     ctx.save();
     ctx.globalCompositeOperation = "source-over";
 
-    const glowR = this.bodyH * (0.11 + heartbeatPulseValue * 0.04 + (1 - intro) * 0.05);
-    const glowA = appear * (0.22 + intro * 0.28 + heartbeatPulseValue * 0.22 + (1 - intro) * 0.35);
+    const glowR = HEART_GLOW_RADIUS * (1 + heartbeatPulseValue * 0.35);
+    const glowA = appear * HEART_GLOW_ALPHA * (0.75 + intro * 0.25 + heartbeatPulseValue * 0.35);
     const grd = ctx.createRadialGradient(origin.x, origin.y, 0, origin.x, origin.y, glowR);
-    grd.addColorStop(0, `rgba(${heartRGB.r},${heartRGB.g},${heartRGB.b},${glowA})`);
-    grd.addColorStop(0.45, `rgba(${heartRGB.r},${heartRGB.g},${heartRGB.b},${glowA * 0.42})`);
-    grd.addColorStop(1, `rgba(${heartRGB.r},${heartRGB.g},${heartRGB.b},0)`);
+    grd.addColorStop(0, `rgba(${mixR},${mixG},${mixB},${glowA})`);
+    grd.addColorStop(1, `rgba(${mixR},${mixG},${mixB},0)`);
     ctx.fillStyle = grd;
     ctx.beginPath();
     ctx.arc(origin.x, origin.y, glowR, 0, Math.PI * 2);
     ctx.fill();
 
-    // Ramificaciones cercanas al corazón, teñidas del color del día.
-    const branchAlpha = appear * intro * (0.42 + heartbeatPulseValue * 0.28);
-    ctx.strokeStyle = `rgba(${heartRGB.r},${heartRGB.g},${heartRGB.b},${branchAlpha})`;
-    ctx.lineWidth = 1.15;
-    ctx.lineCap = "round";
-    const branchDirs = [
-      { ang: -2.35, len: 0.11, curve:  0.035 },
-      { ang: -1.72, len: 0.13, curve: -0.028 },
-      { ang: -0.95, len: 0.10, curve:  0.030 },
-      { ang:  0.55, len: 0.09, curve: -0.022 },
-      { ang:  2.55, len: 0.08, curve:  0.024 },
-      { ang:  3.35, len: 0.10, curve: -0.018 }
+    const blobs = [
+      { ox:  0.00, oy:  0.05, rx: 1.05, ry: 0.82 },
+      { ox: -0.38, oy: -0.18, rx: 0.62, ry: 0.55 },
+      { ox:  0.34, oy: -0.12, rx: 0.58, ry: 0.50 },
+      { ox:  0.04, oy:  0.32, rx: 0.72, ry: 0.48 }
     ];
-    for (const br of branchDirs) {
-      const len = this.bodyH * br.len * (0.92 + intro * 0.12);
-      const x2 = origin.x + Math.cos(br.ang) * len;
-      const y2 = origin.y + Math.sin(br.ang) * len;
-      const mx = (origin.x + x2) * 0.5 + Math.sin(br.ang) * this.bodyH * br.curve;
-      const my = (origin.y + y2) * 0.5 - Math.cos(br.ang) * this.bodyH * br.curve;
+    const fillA = appear * (0.72 + intro * 0.22);
+    for (const bl of blobs) {
+      const bx = origin.x + bl.ox * unit * 6;
+      const by = origin.y + bl.oy * unit * 6;
+      const rx = unit * 5.2 * bl.rx;
+      const ry = unit * 5.2 * bl.ry;
+      const lg = ctx.createRadialGradient(bx - rx * 0.28, by - ry * 0.32, 0, bx, by, Math.max(rx, ry));
+      lg.addColorStop(0, `rgba(${Math.min(255, mixR + 55)},${Math.min(255, mixG + 22)},${Math.min(255, mixB + 18)},${fillA})`);
+      lg.addColorStop(0.55, `rgba(${mixR},${mixG},${mixB},${fillA * 0.92})`);
+      lg.addColorStop(1, `rgba(${base.r},${base.g},${base.b},${fillA * 0.35})`);
+      ctx.fillStyle = lg;
+      ctx.beginPath();
+      ctx.ellipse(bx, by, rx, ry, -0.18, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.strokeStyle = `rgba(${mixR},${mixG},${mixB},${appear * intro * 0.35})`;
+    ctx.lineCap = "round";
+    const nHair = 14;
+    for (let i = 0; i < nHair; i++) {
+      const ang = -2.4 + i * 0.28 + Math.sin(i * 1.7) * 0.12;
+      const len = unit * (3.2 + (i % 3) * 0.7);
+      ctx.lineWidth = lerp(1.15, 0.4, i / nHair);
       ctx.beginPath();
       ctx.moveTo(origin.x, origin.y);
-      ctx.quadraticCurveTo(mx, my, x2, y2);
+      ctx.quadraticCurveTo(
+        origin.x + Math.cos(ang - 0.4) * len * 0.45,
+        origin.y + Math.sin(ang - 0.4) * len * 0.45,
+        origin.x + Math.cos(ang) * len,
+        origin.y + Math.sin(ang) * len
+      );
       ctx.stroke();
     }
 
-    const fillA = appear * (0.55 + intro * 0.40);
-    ctx.fillStyle = `rgba(${heartRGB.r},${heartRGB.g},${heartRGB.b},${fillA})`;
+    ctx.fillStyle = `rgba(255,255,255,${appear * intro * 0.16})`;
     ctx.beginPath();
-    heartPath(ctx, origin.x, origin.y, s);
-    ctx.fill();
-
-    ctx.fillStyle = `rgba(255,255,255,${appear * intro * 0.22})`;
-    ctx.beginPath();
-    heartPath(ctx, origin.x - s * 2.2, origin.y - s * 3.4, s * 0.32);
+    ctx.ellipse(origin.x - unit * 1.6, origin.y - unit * 1.8, unit * 1.1, unit * 0.7, -0.5, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();
@@ -1443,14 +1478,15 @@ class Fiber {
     let alpha        = max(this.alpha * alphaMul * travelMult * shineAlphaMul * heartPulseMul, minA);
     alpha = constrain(alpha, 0, 255);
 
-    // La hebra viaja hasta el cuerpo. Al posarse se apaga: la materia
-    // del cuerpo es la película plástica de la capa base, no más hilos.
-    const bodyTrailAlpha = constrain(alpha * (1 - bf * 0.92), 0, 255);
+    // La hebra permanece visible al posarse: el cuerpo es PNG satinado
+    // MÁS un velo de fibras, como la referencia escultórica.
+    const bodyTrailAlpha = constrain(alpha * (1 - bf * 0.55), 0, 255);
     const paintAmt = smoothstep(0.22, 0.88, pm);
+    const settle = 1 - paintAmt * 0.35;
 
-    if (bodyTrailAlpha > 0.5 && paintAmt < 0.72) {
-      stroke(r, g, b, bodyTrailAlpha * (1 - paintAmt));
-      strokeWeight(this.weight * weightMul);
+    if (bodyTrailAlpha > 0.5) {
+      stroke(r, g, b, bodyTrailAlpha * settle);
+      strokeWeight(this.weight * weightMul * lerp(1, 0.85, paintAmt));
       noFill();
       beginShape();
       curveVertex(this.history[0].x, this.history[0].y);
@@ -1609,7 +1645,7 @@ function drawTitle() {
   push();
   drawingContext.globalCompositeOperation = "source-over";
   noStroke();
-  fill(215, 210, 200, 60);
+  fill(215, 210, 200, 90);
   textAlign(CENTER, CENTER);
   textFont("monospace");
   textSize(13);
