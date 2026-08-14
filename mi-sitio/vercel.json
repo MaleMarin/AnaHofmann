@@ -4,6 +4,8 @@
   "trailingSlash": false,
   "redirects": [
     { "source": "/apps/motor-de-chroma", "destination": "/apps/cromagenesis", "permanent": true },
-    { "source": "/apps/motor-de-chroma/", "destination": "/apps/cromagenesis", "permanent": true }
+    { "source": "/apps/motor-de-chroma/", "destination": "/apps/cromagenesis", "permanent": true },
+    { "source": "/apps/fibras", "destination": "/apps/anatomia-de-la-distancia", "permanent": true },
+    { "source": "/apps/fibras/", "destination": "/apps/anatomia-de-la-distancia", "permanent": true }
   ]
 }

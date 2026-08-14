@@ -224,7 +224,7 @@ let bodies = [];
 ========================================================= */
 
 function preload() {
-  bodyRefImg = loadImage("/apps/fibras/assets/anatomia-plastico.png?v=634");
+  bodyRefImg = loadImage("/apps/anatomia-de-la-distancia/assets/anatomia-plastico.png?v=634");
 }
 
 function setup() {
