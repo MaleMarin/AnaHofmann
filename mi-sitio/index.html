@@ -194,16 +194,6 @@ a{color:inherit;text-decoration:none}
 <body>
 <div class="site">
 
-  <header class="top-bar">
-    <nav class="nav-sections" aria-label="secciones">
-      <a href="/#codigo" data-nav="codigo">código</a>
-      <span class="nav-sep">·</span>
-      <a href="/fotografia/" data-nav="fotografia">fotografía</a>
-      <span class="nav-sep">·</span>
-      <a href="/video/" data-nav="video">video</a>
-    </nav>
-  </header>
-
   <section class="hero" aria-label="identidad">
     <h1 class="hero-name">Ana<br><em>Hofmann</em></h1>
   </section>
@@ -311,21 +301,10 @@ function renderHome() {
   }
 
   root.innerHTML = parts.join("");
-
-  // Nav: ancla en home si hay contenido; si no, página "próximamente".
-  const navMap = {
-    codigo: SITE_CONTENT.codigo.length ? "/#codigo" : "/",
-    fotografia: SITE_CONTENT.fotografia.length ? "/#fotografia" : "/fotografia/",
-    video: SITE_CONTENT.video.length ? "/#video" : "/video/",
-  };
-
-  document.querySelectorAll("[data-nav]").forEach((a) => {
-    const key = a.getAttribute("data-nav");
-    if (navMap[key]) a.setAttribute("href", navMap[key]);
-  });
 }
 
 renderHome();
 </script>
+<script src="/site-nav.js"></script>
 </body>
 </html>
