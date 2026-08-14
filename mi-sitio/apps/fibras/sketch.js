@@ -1,5 +1,5 @@
 /*
- * Anatomía de la Distancia — v629
+ * Anatomía de la Distancia — v630
  *
  * IDEA CENTRAL
  * ------------
@@ -12,8 +12,9 @@
  *
  * TEXTURA DEL CUERPO
  *   - Los colores salen del png (mismas zonas: magenta, verde, amarillo…).
- *   - La materia del cuerpo es ACRÍLICO: pinceladas opacas con cerdas e
- *     empaste, no hilos de luz. El ovillo sigue siendo lana.
+ *   - El acrílico es una PELÍCULA PLÁSTICA: masa opaca + relieve (empaste)
+ *     + brillo especular dieléctrico (no rayas de pincel). El ovillo
+ *     sigue siendo lana.
  *
  * MORPH ESCALONADO POR FIBRA
  *   - Cada fibra recibe morphStart + morphSpan al construirse.
@@ -117,13 +118,21 @@ const WOOL_G = 192;
 const WOOL_B = 142;
 const WOOL_VARIATION = 12;
 
-// Capa base del cuerpo: pintura acrílica pre-renderizada (colores del png).
-const BODY_BASE_MAX_ALPHA = 0.92;
+// Capa base del cuerpo: película de acrílico pre-iluminada (colores del png).
+const BODY_BASE_MAX_ALPHA = 0.96;
 
-// Pincel acrílico: cerdas, empaste, opacidad de capa. El color SIEMPRE
-// viene del sample del png; acá sólo se decide cómo se deposita la pintura.
-const ACRYLIC_BRISTLES     = 6;
-const ACRYLIC_PAINT_ALPHA  = 0.62;
+// Shader de acrílico-plástico. El polímero seca como una piel brillante
+// con espesor: se ve por el relieve + especular blanco (dieléctrico),
+// no por líneas de cerdas.
+const ACRYLIC_SPLAT_RADIUS = 5;
+const ACRYLIC_BUMP         = 3.2;
+const ACRYLIC_AMBIENT      = 0.46;
+const ACRYLIC_DIFFUSE      = 0.54;
+const ACRYLIC_SPEC_SHARP   = 0.78;
+const ACRYLIC_SPEC_SHARP_N = 58;
+const ACRYLIC_SPEC_SOFT    = 0.18;
+const ACRYLIC_SPEC_SOFT_N  = 11;
+const ACRYLIC_FRESNEL      = 0.20;
 
 // Acentos arena suaves: sólo afectan al estado ovillo y se desvanecen al
 // pasar al cuerpo. Tonos medios — evitamos colores muy claros que sumen
@@ -857,53 +866,197 @@ function draw() {
 }
 
 /* =========================================================
-   PINCEL ACRÍLICO
-   Cerdas paralelas + filo iluminado (empaste). El color lo pasa
-   quien llama: siempre el sample del png, nunca una tinta nueva.
+   ACRÍLICO = PELÍCULA PLÁSTICA
+   El polímero acrílico seca como un film: masa de color opaca, relieve
+   redondeado (empaste) y brillo especular blanco (dieléctrico, no metal).
+   No se simula con rayas: se construye un mapa de espesor, se sacan
+   normales y se ilumina tipo Blinn-Phong.
 ========================================================= */
 
-function paintAcrylicStroke(ctx, x, y, angle, length, width, r, g, b, alpha, seed = 0) {
-  const ca = Math.cos(angle);
-  const sa = Math.sin(angle);
-  const px = -sa;
-  const py = ca;
-  const bristles = Math.max(3, Math.round(ACRYLIC_BRISTLES * (0.7 + width / 14)));
-  const halfW = width * 0.5;
-
-  ctx.save();
-  ctx.globalAlpha = alpha;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-
-  for (let i = 0; i < bristles; i++) {
-    const t = bristles === 1 ? 0 : (i / (bristles - 1)) * 2 - 1;
-    const off = t * halfW;
-    const n = noise(seed * 0.01, i * 0.37);
-    const shorten = Math.abs(t) * length * 0.16 + n * length * 0.10;
-    const len = Math.max(2.2, length - shorten);
-    const jitter = (n - 0.5) * 1.6;
-
-    const x0 = x + px * (off + jitter) - ca * len * 0.5;
-    const y0 = y + py * (off + jitter) - sa * len * 0.5;
-    const x1 = x0 + ca * len;
-    const y1 = y0 + sa * len;
-
-    // Filo claro hacia la luz (arriba-izquierda); el otro borde se hunde.
-    const lit = t < 0 ? 1 : 0;
-    const shade = 0.78 + lit * 0.28 - Math.abs(t) * 0.08;
-    const add = lit * 22;
-    const rr = constrain(r * shade + add, 0, 255);
-    const gg = constrain(g * shade + add * 0.85, 0, 255);
-    const bb = constrain(b * shade + add * 0.65, 0, 255);
-
-    ctx.strokeStyle = `rgb(${rr | 0},${gg | 0},${bb | 0})`;
-    ctx.lineWidth = Math.max(1.15, (width / bristles) * 1.45);
-    ctx.beginPath();
-    ctx.moveTo(x0, y0);
-    ctx.lineTo(x1, y1);
-    ctx.stroke();
+function splatPaintDisk(accR, accG, accB, accW, height, w, h, cx, cy, radius, r, g, b, thick) {
+  const r2 = radius * radius;
+  const x0 = Math.max(0, Math.floor(cx - radius));
+  const x1 = Math.min(w - 1, Math.ceil(cx + radius));
+  const y0 = Math.max(0, Math.floor(cy - radius));
+  const y1 = Math.min(h - 1, Math.ceil(cy + radius));
+  for (let y = y0; y <= y1; y++) {
+    const dy = y - cy;
+    for (let x = x0; x <= x1; x++) {
+      const dx = x - cx;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > r2) continue;
+      const fall = 1 - d2 / r2;
+      const wt = fall * fall;
+      const idx = y * w + x;
+      accR[idx] += r * wt;
+      accG[idx] += g * wt;
+      accB[idx] += b * wt;
+      accW[idx] += wt;
+      height[idx] += thick * wt;
+    }
   }
-  ctx.restore();
+}
+
+function renderAcrylicPaint(src) {
+  const w = src.width;
+  const h = src.height;
+  const spx = src.pixels;
+  const n = w * h;
+
+  const accR = new Float32Array(n);
+  const accG = new Float32Array(n);
+  const accB = new Float32Array(n);
+  const accW = new Float32Array(n);
+  const height = new Float32Array(n);
+
+  const radius = ACRYLIC_SPLAT_RADIUS;
+
+  // 1) Masa de pintura: cada pixel de color del png se deposita como
+  //    un disco opaco. Eso cierra los huecos entre fibras sin mezclar
+  //    zonas (el radio es chico: el magenta sigue magenta).
+  for (let y = 0; y < h; y += 2) {
+    for (let x = 0; x < w; x += 2) {
+      const i = (y * w + x) * 4;
+      const a = spx[i + 3];
+      const r = spx[i];
+      const g = spx[i + 1];
+      const b = spx[i + 2];
+      if (a < 16) continue;
+      const lum = (r + g + b) / 3;
+      if (lum < 14) continue;
+      const maxC = Math.max(r, g, b);
+      const minC = Math.min(r, g, b);
+      const sat = maxC > 0 ? (maxC - minC) / maxC : 0;
+      const thick = 0.32 + sat * 0.48 + (lum / 255) * 0.22;
+      splatPaintDisk(accR, accG, accB, accW, height, w, h, x, y, radius, r, g, b, thick);
+    }
+  }
+
+  // 2) Picos de empaste: montículos extra de polímero en zonas saturadas.
+  //    Ahí el especular se concentra como en pintura gorda.
+  for (let k = 0; k < 900; k++) {
+    const x = (noise(k * 0.17, 1.3) * w) | 0;
+    const y = (noise(k * 0.19, 4.8) * h) | 0;
+    const i = (y * w + x) * 4;
+    if (spx[i + 3] < 30) continue;
+    const r = spx[i], g = spx[i + 1], b = spx[i + 2];
+    const lum = (r + g + b) / 3;
+    if (lum < 20) continue;
+    const maxC = Math.max(r, g, b);
+    const minC = Math.min(r, g, b);
+    const sat = maxC > 0 ? (maxC - minC) / maxC : 0;
+    if (sat < 0.18) continue;
+    const rad = 6 + sat * 8;
+    splatPaintDisk(accR, accG, accB, accW, height, w, h, x, y, rad, r, g, b, 0.55 + sat * 0.7);
+  }
+
+  // 3) Relieve de pincel: surcos anisotrópicos suaves (la marca del
+  //    gesto) + lóbulos de espesor. Después se suavizan para que el
+  //    filo sea redondo como plástico, no como xilografía.
+  const ridged = new Float32Array(n);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const idx = y * w + x;
+      const cover = accW[idx];
+      if (cover < 0.06) continue;
+      const ang = noise(x * 0.007, y * 0.007) * Math.PI;
+      const c = Math.cos(ang);
+      const s = Math.sin(ang);
+      const across = -x * s + y * c;
+      const along = x * c + y * s;
+      const groove = 0.5 + 0.5 * Math.sin(across * 0.78 + along * 0.04);
+      const fine = 0.5 + 0.5 * Math.sin(across * 1.85);
+      const lumps = noise(x * 0.032, y * 0.032);
+      let ht = height[idx] * (0.55 + lumps * 0.65);
+      ht += groove * 0.28 * cover;
+      ht += fine * 0.10 * cover;
+      ridged[idx] = ht;
+    }
+  }
+
+  // Blur 3×3 del espesor → crestas de polímero redondeadas.
+  const smoothH = new Float32Array(n);
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const idx = y * w + x;
+      if (accW[idx] < 0.06) continue;
+      let s = 0;
+      for (let oy = -1; oy <= 1; oy++) {
+        for (let ox = -1; ox <= 1; ox++) {
+          s += ridged[(y + oy) * w + (x + ox)];
+        }
+      }
+      smoothH[idx] = s / 9;
+    }
+  }
+
+  // Luz: arriba-izquierda, hacia el observador (mismo lado que el ovillo).
+  let lx = -0.42, ly = -0.62, lz = 0.66;
+  const llen = Math.sqrt(lx * lx + ly * ly + lz * lz);
+  lx /= llen; ly /= llen; lz /= llen;
+  const vx = 0, vy = 0, vz = 1;
+  let hx = lx + vx, hy = ly + vy, hz = lz + vz;
+  const hlen = Math.sqrt(hx * hx + hy * hy + hz * hz);
+  hx /= hlen; hy /= hlen; hz /= hlen;
+
+  const gbuf = createGraphics(w, h);
+  gbuf.pixelDensity(1);
+  gbuf.clear();
+  const ctx = gbuf.drawingContext;
+  const img = ctx.createImageData(w, h);
+  const out = img.data;
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const idx = y * w + x;
+      const cover = accW[idx];
+      const o = idx * 4;
+      if (cover < 0.08) {
+        out[o + 3] = 0;
+        continue;
+      }
+
+      const inv = 1 / cover;
+      const ar = accR[idx] * inv;
+      const ag = accG[idx] * inv;
+      const ab = accB[idx] * inv;
+
+      const x0 = Math.max(0, x - 1);
+      const x1 = Math.min(w - 1, x + 1);
+      const y0 = Math.max(0, y - 1);
+      const y1 = Math.min(h - 1, y + 1);
+      const dHx = (smoothH[y * w + x1] - smoothH[y * w + x0]) * ACRYLIC_BUMP;
+      const dHy = (smoothH[y1 * w + x] - smoothH[y0 * w + x]) * ACRYLIC_BUMP;
+      let nx = -dHx;
+      let ny = -dHy;
+      let nz = 1;
+      const nlen = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+      nx /= nlen; ny /= nlen; nz /= nlen;
+
+      const ndotl = Math.max(0, nx * lx + ny * ly + nz * lz);
+      const ndoth = Math.max(0, nx * hx + ny * hy + nz * hz);
+      const ndotv = Math.max(0, nx * vx + ny * vy + nz * vz);
+
+      const specSharp = Math.pow(ndoth, ACRYLIC_SPEC_SHARP_N) * ACRYLIC_SPEC_SHARP;
+      const specSoft  = Math.pow(ndoth, ACRYLIC_SPEC_SOFT_N) * ACRYLIC_SPEC_SOFT;
+      const fresnel   = Math.pow(1 - ndotv, 3) * ACRYLIC_FRESNEL;
+      const spec = specSharp + specSoft + fresnel;
+
+      const lit = ACRYLIC_AMBIENT + ACRYLIC_DIFFUSE * ndotl;
+      const specR = spec * (220 + ar * 0.14);
+      const specG = spec * (220 + ag * 0.14);
+      const specB = spec * (220 + ab * 0.14);
+
+      out[o]     = constrain(ar * lit + specR, 0, 255) | 0;
+      out[o + 1] = constrain(ag * lit + specG, 0, 255) | 0;
+      out[o + 2] = constrain(ab * lit + specB, 0, 255) | 0;
+      const edge = constrain((cover - 0.08) / 0.38, 0, 1);
+      out[o + 3] = (edge * edge * (3 - 2 * edge) * 255) | 0;
+    }
+  }
+
+  ctx.putImageData(img, 0, 0);
+  return gbuf;
 }
 
 /* =========================================================
@@ -950,105 +1103,9 @@ class AnimatedBody {
     this.master = g;
   }
 
-  // Cuerpo como pintura acrílica: mismas zonas de color del png, pero
-  // depositadas en pinceladas opacas (cerdas + empaste). Las hebras
-  // finas del png se cubren porque cada pincelada es más ancha que el hilo.
+  // Película de acrílico: masa de color del png + relieve + brillo plástico.
   buildAcrylic() {
-    const src = this.master;
-    const w = src.width;
-    const h = src.height;
-    const g = createGraphics(w, h);
-    g.pixelDensity(1);
-    g.clear();
-    const ctx = g.drawingContext;
-    const px = src.pixels;
-
-    const sampleAt = (x, y) => {
-      const ix = constrain(floor(x), 0, w - 1);
-      const iy = constrain(floor(y), 0, h - 1);
-      const i = (iy * w + ix) * 4;
-      return { r: px[i], g: px[i + 1], b: px[i + 2], a: px[i + 3] };
-    };
-
-    const brightAt = (x, y) => {
-      const s = sampleAt(x, y);
-      if (s.a < 8) return 0;
-      return (s.r + s.g + s.b) / 3;
-    };
-
-    const flowAt = (x, y) => {
-      const dx = brightAt(x + 3, y) - brightAt(x - 3, y);
-      const dy = brightAt(x, y + 3) - brightAt(x, y - 3);
-      if (abs(dx) + abs(dy) < 4) {
-        return noise(x * 0.018, y * 0.018) * TWO_PI;
-      }
-      return Math.atan2(dx, -dy);
-    };
-
-    // Pass 1 — imprimación: manchas más oscuras y gordas (cuerpo de pintura).
-    for (let y = 3; y < h; y += 6) {
-      for (let x = 3; x < w; x += 6) {
-        const s = sampleAt(x + random(-2, 2), y + random(-2, 2));
-        if (s.a < 20) continue;
-        if ((s.r + s.g + s.b) / 3 < 18) continue;
-        if (random() > 0.78) continue;
-        const ang = flowAt(x, y) + random(-0.45, 0.45);
-        paintAcrylicStroke(
-          ctx, x, y, ang, random(12, 26), random(8, 16),
-          s.r * 0.70, s.g * 0.70, s.b * 0.70, 0.58, x * 13 + y
-        );
-      }
-    }
-
-    // Pass 2 — color local del png, pinceladas a lo largo de la forma.
-    for (let y = 1; y < h; y += 3) {
-      for (let x = 1; x < w; x += 3) {
-        const jx = x + random(-1.6, 1.6);
-        const jy = y + random(-1.6, 1.6);
-        const s = sampleAt(jx, jy);
-        if (s.a < 16) continue;
-        if ((s.r + s.g + s.b) / 3 < 14) continue;
-        if (random() > 0.88) continue;
-        const ang = flowAt(jx, jy) + random(-0.38, 0.38);
-        paintAcrylicStroke(
-          ctx, jx, jy, ang, random(8, 20), random(3.8, 9),
-          s.r, s.g, s.b, random(0.52, 0.90), jx * 17 + jy * 9
-        );
-      }
-    }
-
-    // Pass 3 — cargas extra en zonas saturadas (los bloques de color).
-    for (let n = 0; n < 3200; n++) {
-      const x = random(w);
-      const y = random(h);
-      const s = sampleAt(x, y);
-      if (s.a < 22) continue;
-      const maxC = Math.max(s.r, s.g, s.b);
-      const minC = Math.min(s.r, s.g, s.b);
-      const sat = maxC > 0 ? (maxC - minC) / maxC : 0;
-      if (random() > 0.28 + sat * 0.72) continue;
-      const ang = flowAt(x, y) + random(-0.28, 0.28);
-      paintAcrylicStroke(
-        ctx, x, y, ang, random(7, 17), random(4, 11),
-        s.r, s.g, s.b, random(0.58, 0.94), n * 97
-      );
-    }
-
-    // Pass 4 — empaste: filo claro (luz arriba-izquierda) sobre pintura húmeda.
-    for (let n = 0; n < 1100; n++) {
-      const x = random(w);
-      const y = random(h);
-      const s = sampleAt(x, y);
-      if (s.a < 36) continue;
-      const ang = flowAt(x, y) + random(-0.2, 0.2);
-      paintAcrylicStroke(
-        ctx, x, y, ang, random(4, 11), random(1.6, 3.4),
-        min(255, s.r + 48), min(255, s.g + 40), min(255, s.b + 28),
-        0.26, n * 53
-      );
-    }
-
-    this.acrylic = g;
+    this.acrylic = renderAcrylicPaint(this.master);
   }
 
   // Muestra puntos del cuerpo. Cada fibra resultante construye su
@@ -1108,8 +1165,7 @@ class AnimatedBody {
     return { x: this.cx + swayX + ox, y: this.cy + swayY + oy };
   }
 
-  // Capa base: pintura acrílica (no el png de fibras). Misma silueta y
-  // paleta, otra materia. Late con el corazón junto con las pinceladas vivas.
+  // Capa base: película de acrílico (masa + relieve + brillo plástico).
   drawBase(bodyBaseAlpha) {
     if (bodyBaseAlpha <= 0.001) return;
     const ctx = drawingContext;
@@ -1230,10 +1286,6 @@ class Fiber {
     this.weight = random(FIBER_WEIGHT_MIN, FIBER_WEIGHT_MAX);
     this.alpha  = FIBER_ALPHA_BASE * map(this.density, 30, 255, 0.6, 1.0);
     this.strandCurve = random(-10, 10);
-    // Pincel de cada fibra al volverse cuerpo: dirección y carga propias.
-    this.brushAng = noise(bodySample.lx * 0.018, bodySample.ly * 0.018) * TWO_PI;
-    this.brushLen = random(7, 16);
-    this.brushWid = random(3.4, 8.2);
 
     // Ventana personal del morph. Las fibras de la PERIFERIA del ovillo
     // (radius alto) arrancan antes y las del CENTRO arrancan después,
@@ -1422,12 +1474,12 @@ class Fiber {
     let alpha        = max(this.alpha * alphaMul * travelMult * shineAlphaMul * heartPulseMul, minA);
     alpha = constrain(alpha, 0, 255);
 
-    // CUERPO: pincelada acrílica (opaca). Durante el viaje aún se ve
-    // la hebra fina; al posarse, la lana se vuelve pintura.
+    // La hebra viaja hasta el cuerpo. Al posarse se apaga: la materia
+    // del cuerpo es la película plástica de la capa base, no más hilos.
     const bodyTrailAlpha = constrain(alpha * (1 - bf * 0.92), 0, 255);
     const paintAmt = smoothstep(0.22, 0.88, pm);
 
-    if (bodyTrailAlpha > 0.5 && paintAmt < 0.82) {
+    if (bodyTrailAlpha > 0.5 && paintAmt < 0.72) {
       stroke(r, g, b, bodyTrailAlpha * (1 - paintAmt));
       strokeWeight(this.weight * weightMul);
       noFill();
@@ -1437,29 +1489,6 @@ class Fiber {
       const last = this.history[this.history.length - 1];
       curveVertex(last.x, last.y);
       endShape();
-    }
-
-    if (paintAmt > 0.04 && bodyTrailAlpha > 0.5) {
-      const keepLive = paintAmt < 0.80 || this.index % 3 === 0;
-      if (keepLive) {
-        const first = this.history[0];
-        const last  = this.history[this.history.length - 1];
-        const moveAng = Math.atan2(last.y - first.y, last.x - first.x);
-        const ang = this.brushAng * 0.55 + moveAng * 0.45;
-        const pulseW = this.brushWid * (0.85 + heartbeatPulseValue * 0.35);
-        const ctx = drawingContext;
-        ctx.save();
-        ctx.globalCompositeOperation = "source-over";
-        paintAcrylicStroke(
-          ctx, this.x, this.y, ang,
-          this.brushLen,
-          pulseW,
-          r, g, b,
-          (bodyTrailAlpha / 255) * ACRYLIC_PAINT_ALPHA * paintAmt,
-          this.seed
-        );
-        ctx.restore();
-      }
     }
 
     // HEBRA DE LANA ENROLLADA: el corazón del ovillo. Cada fibra dibuja un
