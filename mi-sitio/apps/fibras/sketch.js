@@ -1,19 +1,10 @@
 /*
- * Anatomía de la Distancia — v632
+ * Anatomía de la Distancia — v633
  *
  * IDEA CENTRAL
  * ------------
- * El cuerpo no aparece de golpe. Primero existe un OVILLO DE LANA hecho
- * íntegramente de fibras, que se desamarra y viaja hacia una anatomía
- * NUEVA: tubos de plástico, volúmenes redondos y abanicos ramificados
- * (coral / bronquios), no el png anterior.
- *
- * El morph es un único sistema de fibras con dos anclas: anchorBall
- * (ovillo) y anchorBody (sample de la anatomía generada).
- *
- * CUERPO
- *   - Plástico satinado 3D (cápsulas + esferas + fans).
- *   - Fondo azul cerúleo. El ovillo sigue siendo lana.
+ * Ovillo de lana → la anatomía de la foto (plástico satinado).
+ * El cuerpo ES esa imagen; no se reconstruye con tubos 2D.
  *
  * MORPH ESCALONADO POR FIBRA
  *   - Cada fibra recibe morphStart + morphSpan al construirse.
@@ -225,13 +216,16 @@ let audioReady             = false;
 let airplane               = {};
 
 // ============ ESTADO ============
+let bodyRefImg;
 let bodies = [];
 
 /* =========================================================
    BOOTSTRAP
 ========================================================= */
 
-function preload() {}
+function preload() {
+  bodyRefImg = loadImage("/apps/fibras/assets/anatomia-plastico.png");
+}
 
 function setup() {
   createCanvas(windowWidth, windowHeight);
@@ -860,10 +854,11 @@ class AnimatedBody {
     this.mirror = mirror;
     this.phase = phase;
 
-    let h = min(height * 0.92, 1080);
-    let w = h * 0.72;
-    const maxW = width * 0.58;
-    if (w > maxW) { w = maxW; h = w / 0.72; }
+    const aspect = bodyRefImg.width / bodyRefImg.height;
+    let h = min(height * 0.94, 1100);
+    let w = h * aspect;
+    const maxW = width * 0.72;
+    if (w > maxW) { w = maxW; h = w / aspect; }
 
     this.bodyW = w;
     this.bodyH = h;
@@ -873,7 +868,27 @@ class AnimatedBody {
   }
 
   buildMaster() {
-    const g = generatePlasticAnatomy(floor(this.bodyW), floor(this.bodyH));
+    const g = createGraphics(floor(this.bodyW), floor(this.bodyH));
+    g.pixelDensity(1);
+    g.clear();
+    g.imageMode(CORNER);
+    g.image(bodyRefImg, 0, 0, g.width, g.height);
+    g.loadPixels();
+    if (bodyRefImg.pixels.length < 4) bodyRefImg.loadPixels();
+    const skyR = bodyRefImg.pixels[0];
+    const skyG = bodyRefImg.pixels[1];
+    const skyB = bodyRefImg.pixels[2];
+    const lim = 42 * 42 * 3;
+    const px = g.pixels;
+    const n = g.width * g.height;
+    for (let i = 0; i < n; i++) {
+      const o = i * 4;
+      const dr = px[o] - skyR;
+      const dg = px[o + 1] - skyG;
+      const db = px[o + 2] - skyB;
+      if (dr * dr + dg * dg + db * db < lim) px[o + 3] = 0;
+    }
+    g.updatePixels();
     this.master = g;
     this.acrylic = g;
   }
