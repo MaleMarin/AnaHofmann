@@ -1,5 +1,5 @@
 /*
- * Anatomía de la Distancia — v609
+ * Anatomía de la Distancia — v629
  *
  * IDEA CENTRAL
  * ------------
@@ -9,6 +9,11 @@
  * (cuerpo-ref.png). La transformación es un único sistema de fibras con
  * dos anclas: anchorBall (espiral programática) y anchorBody (sample
  * del png del cuerpo). El anchor activo es lerp(ball, body, personalMorph).
+ *
+ * TEXTURA DEL CUERPO
+ *   - Los colores salen del png (mismas zonas: magenta, verde, amarillo…).
+ *   - La materia del cuerpo es ACRÍLICO: pinceladas opacas con cerdas e
+ *     empaste, no hilos de luz. El ovillo sigue siendo lana.
  *
  * MORPH ESCALONADO POR FIBRA
  *   - Cada fibra recibe morphStart + morphSpan al construirse.
@@ -112,10 +117,13 @@ const WOOL_G = 192;
 const WOOL_B = 142;
 const WOOL_VARIATION = 12;
 
-// Capa base del cuerpo: alpha máximo del png original (no teñido) cuando
-// la figura humana ya está formada. Alta para que la figura colorida sea
-// claramente legible al final.
-const BODY_BASE_MAX_ALPHA = 0.85;
+// Capa base del cuerpo: pintura acrílica pre-renderizada (colores del png).
+const BODY_BASE_MAX_ALPHA = 0.92;
+
+// Pincel acrílico: cerdas, empaste, opacidad de capa. El color SIEMPRE
+// viene del sample del png; acá sólo se decide cómo se deposita la pintura.
+const ACRYLIC_BRISTLES     = 6;
+const ACRYLIC_PAINT_ALPHA  = 0.62;
 
 // Acentos arena suaves: sólo afectan al estado ovillo y se desvanecen al
 // pasar al cuerpo. Tonos medios — evitamos colores muy claros que sumen
@@ -140,14 +148,14 @@ const SHINE_PALETTE = [
   { r: 255, g: 140, b: 215 },  // rosa
   { r: 255, g: 230, b: 200 },  // blanco cálido
 ];
-const SHINE_PROBABILITY  = 0.55;  // proporción de fibras que brillan
-const SHINE_RATE_MIN     = 0.010; // velocidad de pulso (rad/frame)
-const SHINE_RATE_MAX     = 0.028;
-const SHINE_SHARP_MIN    = 5;     // qué tan picudo es el pulso
-const SHINE_SHARP_MAX    = 12;
-const SHINE_MIX_MAX      = 0.85;  // mezcla máxima del color de brillo
-const SHINE_BODY_THRESH  = 0.55;  // morph personal a partir del cual brilla
-const SHINE_ALPHA_BOOST  = 0.55;  // boost de alpha en el pico del brillo
+const SHINE_PROBABILITY  = 0.28;  // barniz húmedo, no neón
+const SHINE_RATE_MIN     = 0.010;
+const SHINE_RATE_MAX     = 0.022;
+const SHINE_SHARP_MIN    = 5;
+const SHINE_SHARP_MAX    = 10;
+const SHINE_MIX_MAX      = 0.28;  // highlight del propio color, no otra tinta
+const SHINE_BODY_THRESH  = 0.55;
+const SHINE_ALPHA_BOOST  = 0.22;
 
 // Pulso global del cuerpo siguiendo el latido. Multiplica la presencia
 // (alpha) de la capa base y de las fibras del cuerpo en el pico del lub
@@ -828,9 +836,8 @@ function draw() {
   updateHeartbeatPulseValue();
   const pulseBoost = 1 + heartbeatPulseValue * BODY_PULSE_AMOUNT;
 
-  // 1) Capa base del cuerpo: png original con sus colores reales. Empieza a
-  // aparecer pronto después del hold (morph 0.30) y queda totalmente
-  // visible cerca del final, así la figura humana colorida es legible.
+  // 1) Capa base del cuerpo: pintura acrílica con los colores del png.
+  // Empieza a aparecer pronto después del hold y queda formada al final.
   // Modulada por el pulso del latido para que el cuerpo "lata".
   const bodyBaseAlphaBase = smoothstep(0.30, 0.90, morphSmoothed) * BODY_BASE_MAX_ALPHA;
   const bodyBaseAlpha     = constrain(bodyBaseAlphaBase * pulseBoost, 0, 1);
@@ -847,6 +854,56 @@ function draw() {
   drawTitle();
 
   updateAudio(morphSmoothed);
+}
+
+/* =========================================================
+   PINCEL ACRÍLICO
+   Cerdas paralelas + filo iluminado (empaste). El color lo pasa
+   quien llama: siempre el sample del png, nunca una tinta nueva.
+========================================================= */
+
+function paintAcrylicStroke(ctx, x, y, angle, length, width, r, g, b, alpha, seed = 0) {
+  const ca = Math.cos(angle);
+  const sa = Math.sin(angle);
+  const px = -sa;
+  const py = ca;
+  const bristles = Math.max(3, Math.round(ACRYLIC_BRISTLES * (0.7 + width / 14)));
+  const halfW = width * 0.5;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  for (let i = 0; i < bristles; i++) {
+    const t = bristles === 1 ? 0 : (i / (bristles - 1)) * 2 - 1;
+    const off = t * halfW;
+    const n = noise(seed * 0.01, i * 0.37);
+    const shorten = Math.abs(t) * length * 0.16 + n * length * 0.10;
+    const len = Math.max(2.2, length - shorten);
+    const jitter = (n - 0.5) * 1.6;
+
+    const x0 = x + px * (off + jitter) - ca * len * 0.5;
+    const y0 = y + py * (off + jitter) - sa * len * 0.5;
+    const x1 = x0 + ca * len;
+    const y1 = y0 + sa * len;
+
+    // Filo claro hacia la luz (arriba-izquierda); el otro borde se hunde.
+    const lit = t < 0 ? 1 : 0;
+    const shade = 0.78 + lit * 0.28 - Math.abs(t) * 0.08;
+    const add = lit * 22;
+    const rr = constrain(r * shade + add, 0, 255);
+    const gg = constrain(g * shade + add * 0.85, 0, 255);
+    const bb = constrain(b * shade + add * 0.65, 0, 255);
+
+    ctx.strokeStyle = `rgb(${rr | 0},${gg | 0},${bb | 0})`;
+    ctx.lineWidth = Math.max(1.15, (width / bristles) * 1.45);
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 /* =========================================================
@@ -870,11 +927,12 @@ class AnimatedBody {
     this.bodyH = h;
 
     this.buildMaster();
+    this.buildAcrylic();
     this.buildFibers();
   }
 
   // Pre-render: imagen rotada 90° CW. Se usa para muestrear posiciones
-  // de las fibras (los colores se ignoran).
+  // y colores de las fibras / de la pintura.
   buildMaster() {
     const g = createGraphics(floor(this.bodyW), floor(this.bodyH));
     g.pixelDensity(1);
@@ -890,6 +948,107 @@ class AnimatedBody {
 
     g.loadPixels();
     this.master = g;
+  }
+
+  // Cuerpo como pintura acrílica: mismas zonas de color del png, pero
+  // depositadas en pinceladas opacas (cerdas + empaste). Las hebras
+  // finas del png se cubren porque cada pincelada es más ancha que el hilo.
+  buildAcrylic() {
+    const src = this.master;
+    const w = src.width;
+    const h = src.height;
+    const g = createGraphics(w, h);
+    g.pixelDensity(1);
+    g.clear();
+    const ctx = g.drawingContext;
+    const px = src.pixels;
+
+    const sampleAt = (x, y) => {
+      const ix = constrain(floor(x), 0, w - 1);
+      const iy = constrain(floor(y), 0, h - 1);
+      const i = (iy * w + ix) * 4;
+      return { r: px[i], g: px[i + 1], b: px[i + 2], a: px[i + 3] };
+    };
+
+    const brightAt = (x, y) => {
+      const s = sampleAt(x, y);
+      if (s.a < 8) return 0;
+      return (s.r + s.g + s.b) / 3;
+    };
+
+    const flowAt = (x, y) => {
+      const dx = brightAt(x + 3, y) - brightAt(x - 3, y);
+      const dy = brightAt(x, y + 3) - brightAt(x, y - 3);
+      if (abs(dx) + abs(dy) < 4) {
+        return noise(x * 0.018, y * 0.018) * TWO_PI;
+      }
+      return Math.atan2(dx, -dy);
+    };
+
+    // Pass 1 — imprimación: manchas más oscuras y gordas (cuerpo de pintura).
+    for (let y = 3; y < h; y += 6) {
+      for (let x = 3; x < w; x += 6) {
+        const s = sampleAt(x + random(-2, 2), y + random(-2, 2));
+        if (s.a < 20) continue;
+        if ((s.r + s.g + s.b) / 3 < 18) continue;
+        if (random() > 0.78) continue;
+        const ang = flowAt(x, y) + random(-0.45, 0.45);
+        paintAcrylicStroke(
+          ctx, x, y, ang, random(12, 26), random(8, 16),
+          s.r * 0.70, s.g * 0.70, s.b * 0.70, 0.58, x * 13 + y
+        );
+      }
+    }
+
+    // Pass 2 — color local del png, pinceladas a lo largo de la forma.
+    for (let y = 1; y < h; y += 3) {
+      for (let x = 1; x < w; x += 3) {
+        const jx = x + random(-1.6, 1.6);
+        const jy = y + random(-1.6, 1.6);
+        const s = sampleAt(jx, jy);
+        if (s.a < 16) continue;
+        if ((s.r + s.g + s.b) / 3 < 14) continue;
+        if (random() > 0.88) continue;
+        const ang = flowAt(jx, jy) + random(-0.38, 0.38);
+        paintAcrylicStroke(
+          ctx, jx, jy, ang, random(8, 20), random(3.8, 9),
+          s.r, s.g, s.b, random(0.52, 0.90), jx * 17 + jy * 9
+        );
+      }
+    }
+
+    // Pass 3 — cargas extra en zonas saturadas (los bloques de color).
+    for (let n = 0; n < 3200; n++) {
+      const x = random(w);
+      const y = random(h);
+      const s = sampleAt(x, y);
+      if (s.a < 22) continue;
+      const maxC = Math.max(s.r, s.g, s.b);
+      const minC = Math.min(s.r, s.g, s.b);
+      const sat = maxC > 0 ? (maxC - minC) / maxC : 0;
+      if (random() > 0.28 + sat * 0.72) continue;
+      const ang = flowAt(x, y) + random(-0.28, 0.28);
+      paintAcrylicStroke(
+        ctx, x, y, ang, random(7, 17), random(4, 11),
+        s.r, s.g, s.b, random(0.58, 0.94), n * 97
+      );
+    }
+
+    // Pass 4 — empaste: filo claro (luz arriba-izquierda) sobre pintura húmeda.
+    for (let n = 0; n < 1100; n++) {
+      const x = random(w);
+      const y = random(h);
+      const s = sampleAt(x, y);
+      if (s.a < 36) continue;
+      const ang = flowAt(x, y) + random(-0.2, 0.2);
+      paintAcrylicStroke(
+        ctx, x, y, ang, random(4, 11), random(1.6, 3.4),
+        min(255, s.r + 48), min(255, s.g + 40), min(255, s.b + 28),
+        0.26, n * 53
+      );
+    }
+
+    this.acrylic = g;
   }
 
   // Muestra puntos del cuerpo. Cada fibra resultante construye su
@@ -949,13 +1108,8 @@ class AnimatedBody {
     return { x: this.cx + swayX + ox, y: this.cy + swayY + oy };
   }
 
-  // Capa base del cuerpo: el png original (con sus colores reales) dibujado
-  // con alpha bajo. Sólo aparece cerca del final del morph, así la figura
-  // humana se lee con su paleta original. NO se tiñe — usamos los pixels
-  // del png tal cual, manteniendo la transparencia del fondo, así no hay
-  // ningún rectángulo de color: sólo la silueta colorida.
-  // También se escala con el latido para que la silueta lata junto con
-  // las fibras.
+  // Capa base: pintura acrílica (no el png de fibras). Misma silueta y
+  // paleta, otra materia. Late con el corazón junto con las pinceladas vivas.
   drawBase(bodyBaseAlpha) {
     if (bodyBaseAlpha <= 0.001) return;
     const ctx = drawingContext;
@@ -965,8 +1119,9 @@ class AnimatedBody {
     ctx.translate(this.cx, this.cy);
     ctx.scale(heartScale, heartScale);
     ctx.translate(-this.bodyW * 0.5, -this.bodyH * 0.5);
-    const masterEl = this.master.elt || this.master.canvas;
-    ctx.drawImage(masterEl, 0, 0, this.bodyW, this.bodyH);
+    const paint = this.acrylic || this.master;
+    const el = paint.elt || paint.canvas;
+    ctx.drawImage(el, 0, 0, this.bodyW, this.bodyH);
     ctx.restore();
   }
 
@@ -1074,8 +1229,11 @@ class Fiber {
     this.seed   = random(10000);
     this.weight = random(FIBER_WEIGHT_MIN, FIBER_WEIGHT_MAX);
     this.alpha  = FIBER_ALPHA_BASE * map(this.density, 30, 255, 0.6, 1.0);
-    // Curvatura usada por la hebra de viaje (transit trail).
     this.strandCurve = random(-10, 10);
+    // Pincel de cada fibra al volverse cuerpo: dirección y carga propias.
+    this.brushAng = noise(bodySample.lx * 0.018, bodySample.ly * 0.018) * TWO_PI;
+    this.brushLen = random(7, 16);
+    this.brushWid = random(3.4, 8.2);
 
     // Ventana personal del morph. Las fibras de la PERIFERIA del ovillo
     // (radius alto) arrancan antes y las del CENTRO arrancan después,
@@ -1230,9 +1388,7 @@ class Fiber {
       baseB = lerp(baseB, this.accent.b, m);
     }
 
-    // Brillo de colores: en el estado cuerpo cada fibra "respira" hacia
-    // su shineColor con un pulso propio (fase y velocidad únicas), así la
-    // figura humana parpadea en distintos colores a la vez.
+    // Barniz húmedo: aclara el propio color del png, no cambia de tinta.
     let shineMix = 0;
     if (this.shine && pm > SHINE_BODY_THRESH) {
       const phase = frameCount * this.shineRate + this.shinePhase;
@@ -1244,9 +1400,9 @@ class Fiber {
         1
       );
       shineMix = gate * SHINE_MIX_MAX * bodyFactor;
-      baseR = lerp(baseR, this.shine.r, shineMix);
-      baseG = lerp(baseG, this.shine.g, shineMix);
-      baseB = lerp(baseB, this.shine.b, shineMix);
+      baseR = lerp(baseR, min(255, this.r * 0.45 + 175), shineMix);
+      baseG = lerp(baseG, min(255, this.g * 0.45 + 168), shineMix);
+      baseB = lerp(baseB, min(255, this.b * 0.45 + 150), shineMix);
     }
 
     const r = constrain(baseR * colorBoost, 0, 255);
@@ -1266,12 +1422,13 @@ class Fiber {
     let alpha        = max(this.alpha * alphaMul * travelMult * shineAlphaMul * heartPulseMul, minA);
     alpha = constrain(alpha, 0, 255);
 
-    // La línea de historia es la fibra del CUERPO. En estado ovillo se
-    // desvanece (ahí dibuja el arco enrollado de abajo, con volumen); a
-    // medida que la fibra se vuelve cuerpo, esta línea toma protagonismo.
+    // CUERPO: pincelada acrílica (opaca). Durante el viaje aún se ve
+    // la hebra fina; al posarse, la lana se vuelve pintura.
     const bodyTrailAlpha = constrain(alpha * (1 - bf * 0.92), 0, 255);
-    if (bodyTrailAlpha > 0.5) {
-      stroke(r, g, b, bodyTrailAlpha);
+    const paintAmt = smoothstep(0.22, 0.88, pm);
+
+    if (bodyTrailAlpha > 0.5 && paintAmt < 0.82) {
+      stroke(r, g, b, bodyTrailAlpha * (1 - paintAmt));
       strokeWeight(this.weight * weightMul);
       noFill();
       beginShape();
@@ -1280,6 +1437,29 @@ class Fiber {
       const last = this.history[this.history.length - 1];
       curveVertex(last.x, last.y);
       endShape();
+    }
+
+    if (paintAmt > 0.04 && bodyTrailAlpha > 0.5) {
+      const keepLive = paintAmt < 0.80 || this.index % 3 === 0;
+      if (keepLive) {
+        const first = this.history[0];
+        const last  = this.history[this.history.length - 1];
+        const moveAng = Math.atan2(last.y - first.y, last.x - first.x);
+        const ang = this.brushAng * 0.55 + moveAng * 0.45;
+        const pulseW = this.brushWid * (0.85 + heartbeatPulseValue * 0.35);
+        const ctx = drawingContext;
+        ctx.save();
+        ctx.globalCompositeOperation = "source-over";
+        paintAcrylicStroke(
+          ctx, this.x, this.y, ang,
+          this.brushLen,
+          pulseW,
+          r, g, b,
+          (bodyTrailAlpha / 255) * ACRYLIC_PAINT_ALPHA * paintAmt,
+          this.seed
+        );
+        ctx.restore();
+      }
     }
 
     // HEBRA DE LANA ENROLLADA: el corazón del ovillo. Cada fibra dibuja un
