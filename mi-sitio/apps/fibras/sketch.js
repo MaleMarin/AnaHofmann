@@ -1,5 +1,5 @@
 /*
- * Anatomía de la Distancia — v633
+ * Anatomía de la Distancia — v634
  *
  * IDEA CENTRAL
  * ------------
@@ -224,7 +224,7 @@ let bodies = [];
 ========================================================= */
 
 function preload() {
-  bodyRefImg = loadImage("/apps/fibras/assets/anatomia-plastico.png");
+  bodyRefImg = loadImage("/apps/fibras/assets/anatomia-plastico.png?v=634");
 }
 
 function setup() {
@@ -855,7 +855,7 @@ class AnimatedBody {
     this.phase = phase;
 
     const aspect = bodyRefImg.width / bodyRefImg.height;
-    let h = min(height * 0.94, 1100);
+    let h = min(height * 0.88, 1040);
     let w = h * aspect;
     const maxW = width * 0.72;
     if (w > maxW) { w = maxW; h = w / aspect; }
