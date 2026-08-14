@@ -1,10 +1,11 @@
 /*
- * Anatomía de la Distancia — v637
+ * Anatomía de la Distancia — v638
  *
  * IDEA CENTRAL
  * ------------
- * Ovillo de lana → la anatomía de la foto (plástico satinado).
- * El cuerpo ES esa imagen; no se reconstruye con tubos 2D.
+ * Ovillo de lana → escultura orgánica 3D (masas metaball, luz satinada).
+ * El cuerpo se genera como volumen: no es una silueta coloreada ni un PNG
+ * recortado. Corazón y ramificaciones pertenecen al mismo lenguaje formal.
  *
  * MORPH ESCALONADO POR FIBRA
  *   - Cada fibra recibe morphStart + morphSpan al construirse.
@@ -99,28 +100,11 @@ const BALL_HILIGHT_MAX   = 0.42;  // cuánto se aclara el pico iluminado
 // superponen; con "lighter" hay que evitar que el centro sature en blanco.
 const BALL_STRAND_ALPHA_MULT = 0.42;
 
-// Paleta "arena": SOLO para el ovillo (estado inicial), sobre negro.
+// Paleta "arena": SOLO para el ovillo (estado inicial).
 const WOOL_R = 220;
 const WOOL_G = 192;
 const WOOL_B = 142;
 const WOOL_VARIATION = 12;
-
-// Fondo negro. El cuerpo se construye con PALETTE.
-const BG_COLOR = "#000000";
-const BG_R = 0;
-const BG_G = 0;
-const BG_B = 0;
-const BODY_BASE_MAX_ALPHA = 1.0;
-
-const PALETTE = [
-  "#355BA3", // azul
-  "#5C41A5", // violeta
-  "#B84AAB", // magenta
-  "#68174D", // ciruela oscura
-  "#AD0436", // rojo profundo — corazón / foco vital
-  "#EFC34A"  // amarillo — acentos de luz
-];
-const PALETTE_RGB = PALETTE.map(hexToRgbStatic);
 
 function hexToRgbStatic(hex) {
   const h = hex.replace("#", "");
@@ -128,6 +112,51 @@ function hexToRgbStatic(hex) {
     r: parseInt(h.slice(0, 2), 16),
     g: parseInt(h.slice(2, 4), 16),
     b: parseInt(h.slice(4, 6), 16)
+  };
+}
+
+// Paleta principal de la pieza. `electric` es Electric Pop:
+// constante fácil de corregir si el hex definitivo cambia.
+const ELECTRIC_HEX = "#E21888";
+const PALETTE = {
+  ocagyu:    "#0C5F66",
+  sapphire:  "#1C5FA8",
+  emerald:   "#1C8468",
+  electric:  ELECTRIC_HEX,
+  tangerine: "#FF5A1C"
+};
+const C = {
+  ocagyu:    hexToRgbStatic(PALETTE.ocagyu),
+  sapphire:  hexToRgbStatic(PALETTE.sapphire),
+  emerald:   hexToRgbStatic(PALETTE.emerald),
+  electric:  hexToRgbStatic(PALETTE.electric),
+  tangerine: hexToRgbStatic(PALETTE.tangerine)
+};
+const PALETTE_RGB = [C.sapphire, C.emerald, C.electric, C.ocagyu, C.electric, C.tangerine];
+
+const BG_COLOR = PALETTE.ocagyu;
+const BG_R = C.ocagyu.r;
+const BG_G = C.ocagyu.g;
+const BG_B = C.ocagyu.b;
+const BODY_BASE_MAX_ALPHA = 1.0;
+const BODY_ASPECT = 0.48;
+const VOL_H = 480;
+const VOL_W = Math.round(VOL_H * BODY_ASPECT);
+
+const KEY_L = norm3(-0.48, -0.62, 0.62);
+const FILL_L = norm3(0.70, 0.18, 0.38);
+
+function norm3(x, y, z) {
+  const l = Math.sqrt(x * x + y * y + z * z) || 1;
+  return { x: x / l, y: y / l, z: z / l };
+}
+
+function lerpRGB(a, b, t) {
+  const u = constrain(t, 0, 1);
+  return {
+    r: a.r + (b.r - a.r) * u,
+    g: a.g + (b.g - a.g) * u,
+    b: a.b + (b.b - a.b) * u
   };
 }
 
@@ -162,26 +191,23 @@ const HEART_GLOW_RADIUS  = 16;
 // al día siguiente = el siguiente de la paleta. No usa random,
 // frameCount, hora ni refresh.
 const HEART_DAY_COLORS = [
-  "#355BA3",
-  "#5C41A5",
-  "#B84AAB",
-  "#68174D",
-  "#AD0436",
-  "#EFC34A"
+  PALETTE.electric,
+  PALETTE.tangerine,
+  PALETTE.emerald,
+  PALETTE.sapphire,
+  PALETTE.ocagyu
 ];
 const HEART_DAY_NAMES = {
-  "#355BA3": "azul",
-  "#5C41A5": "violeta",
-  "#B84AAB": "magenta",
-  "#68174D": "ciruela",
-  "#AD0436": "rojo profundo",
-  "#EFC34A": "amarillo"
+  [PALETTE.electric]:  "electric pop",
+  [PALETTE.tangerine]: "tangerina",
+  [PALETTE.emerald]:   "esmeralda",
+  [PALETTE.sapphire]:  "zafiro",
+  [PALETTE.ocagyu]:    "ocagyu"
 };
-// Centro del corazón en coords locales del cuerpo (0..1). El pecho
-// rosa de anatomia-plastico.png cae ~ y=0.29; el órgano se corre un
-// poco a la izquierda anatómica (derecha de pantalla).
-const HEART_NX = 0.56;
-const HEART_NY = 0.292;
+// Centro del corazón en coords locales del cuerpo (0..1).
+// Izquierda anatómica = derecha de pantalla, incrustado en el pecho.
+const HEART_NX = 0.58;
+const HEART_NY = 0.268;
 const HEART_RX = 0.11;
 const HEART_RY = 0.075;
 const HEART_BRANCH_RX = 0.26;
@@ -297,16 +323,13 @@ let audioReady             = false;
 let airplane               = {};
 
 // ============ ESTADO ============
-let bodyRefImg;
 let bodies = [];
+let cachedBodyVolume = null;
+let cachedHeartVolume = null;
 
 /* =========================================================
    BOOTSTRAP
 ========================================================= */
-
-function preload() {
-  bodyRefImg = loadImage("/apps/anatomia-de-la-distancia/assets/anatomia-plastico.png?v=637");
-}
 
 function setup() {
   createCanvas(windowWidth, windowHeight);
@@ -316,7 +339,7 @@ function setup() {
   noFill();
 
   buildScene();
-  background(BG_R, BG_G, BG_B);
+  drawBackdrop(255);
 
   startMs = millis();
   setupRestartButton();
@@ -327,7 +350,7 @@ function setup() {
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
   buildScene();
-  background(BG_R, BG_G, BG_B);
+  drawBackdrop(255);
 }
 
 function buildScene() {
@@ -721,54 +744,14 @@ function getBodyMotion(frame) {
   return { swayX: 0, swayY: 0, breath: 0, scaleX: 1, scaleY: 1 };
 }
 
-function pickBodyPaletteIndex(r, g, b, nx, ny) {
-  const hdx = (nx - HEART_NX) / HEART_RX;
-  const hdy = (ny - HEART_NY) / HEART_RY;
-  if (hdx * hdx + hdy * hdy < 1.05) return 4;
-
-  const maxC = Math.max(r, g, b);
-  const minC = Math.min(r, g, b);
-  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  const sat = maxC < 1 ? 0 : (maxC - minC) / maxC;
-  const d = maxC - minC;
-  let hue = 0;
-  if (d > 3) {
-    if (maxC === r) hue = 60 * (((g - b) / d) % 6);
-    else if (maxC === g) hue = 60 * ((b - r) / d + 2);
-    else hue = 60 * ((r - g) / d + 4);
-    if (hue < 0) hue += 360;
-  }
-
-  if (sat < 0.14) {
-    if (lum < 0.32) return 3;
-    if (lum > 0.78) return 2;
-    return 1;
-  }
-  if (hue < 18 || hue >= 330) return 2;
-  if (hue < 58) return 5;
-  if (hue < 155) return 1;
-  if (hue < 255) return 0;
-  if (hue < 295) return 1;
-  return 2;
-}
-
-function shadePaletteColor(pal, lum) {
-  const shadow = PALETTE_RGB[3];
-  if (lum < 0.42) {
-    const t = lum / 0.42;
-    return {
-      r: lerp(shadow.r * 0.28, pal.r, t),
-      g: lerp(shadow.g * 0.28, pal.g, t),
-      b: lerp(shadow.b * 0.28, pal.b, t)
-    };
-  }
-  const t = (lum - 0.42) / 0.58;
-  const hi = Math.min(1, t * 0.62);
-  return {
-    r: lerp(pal.r, Math.min(255, pal.r * 0.55 + 170), hi),
-    g: lerp(pal.g, Math.min(255, pal.g * 0.55 + 155), hi),
-    b: lerp(pal.b, Math.min(255, pal.b * 0.55 + 130), hi)
-  };
+function drawBackdrop(alpha255) {
+  const ctx = drawingContext;
+  const a = constrain(alpha255 / 255, 0, 1);
+  const grd = ctx.createLinearGradient(0, 0, width * 0.08, height);
+  grd.addColorStop(0, `rgba(${C.ocagyu.r},${C.ocagyu.g},${C.ocagyu.b},${a})`);
+  grd.addColorStop(1, `rgba(${C.sapphire.r},${C.sapphire.g},${C.sapphire.b},${a})`);
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, width, height);
 }
 
 function heartInfluence(lx, ly, bodyW, bodyH) {
@@ -811,8 +794,8 @@ function draw() {
   // Fondo dinámico: durante la transición se borra menos para que se
   // vean los rastros del desamarre.
   const morphing = isMorphingNow();
-  const bgAlpha = morphing ? 48 : 90;
-  background(BG_R, BG_G, BG_B, bgAlpha);
+  const bgAlpha = morphing ? 48 : 102;
+  drawBackdrop(bgAlpha);
 
   // Morph desde la línea de tiempo interna.
   const rawProgress = getRawProgress();
@@ -827,7 +810,7 @@ function draw() {
     heartIntro = min(1, heartIntro + 0.014);
   }
 
-  // 1) Anatomía de plástico. Aparece durante el morph.
+  // 1) Escultura volumétrica. Aparece durante el morph.
   const bodyBaseAlpha = smoothstep(0.22, 0.88, morphSmoothed) * BODY_BASE_MAX_ALPHA;
   for (const body of bodies) body.drawBase(bodyBaseAlpha);
 
@@ -840,7 +823,7 @@ function draw() {
   for (const body of bodies) body.drawFibers();
   drawingContext.restore();
 
-  // 4) Masas y ramas coralinas, incluyendo las que nacen del corazón.
+  // 4) Sombra de contacto y venas 3D que pulsan con el corazón.
   for (const body of bodies) {
     body.drawMasses(bodyBaseAlpha);
     body.drawCoral(bodyBaseAlpha);
@@ -853,11 +836,291 @@ function draw() {
 }
 
 /* =========================================================
-   CUERPO = anatomía de plástico (anatomy.js)
+   ESCULTURA 3D — masas metaball, luz satinada, misma lengua
+   para cuerpo, corazón y ramificaciones.
 ========================================================= */
 
+function mulberry32(a) {
+  return function () {
+    a |= 0;
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function ellipBlob(x, y, z, rx, ry, rz, kind) {
+  return { x, y, z, rx, ry, rz, kind: kind || "flesh" };
+}
+
+function capsuleBlobs(ax, ay, az, bx, by, bz, ra, rb, n, kind) {
+  const out = [];
+  const segs = n == null ? 8 : n;
+  const k = kind || "flesh";
+  for (let i = 0; i <= segs; i++) {
+    const t = i / segs;
+    const r = lerp(ra, rb, t);
+    out.push(ellipBlob(
+      lerp(ax, bx, t), lerp(ay, by, t), lerp(az, bz, t),
+      r, r * 1.04, r, k
+    ));
+  }
+  return out;
+}
+
+function shadeSculpt(ndotl, spec, wrap, fresnel, nz, kind, heartAmt, coralAmt, heartPigment) {
+  const oc = C.ocagyu, sa = C.sapphire, em = C.emerald, el = heartPigment || C.electric, ta = C.tangerine;
+  const deep = { r: oc.r * 0.38, g: oc.g * 0.38, b: oc.b * 0.42 };
+  let pigment;
+  if (wrap < 0.32) pigment = lerpRGB(deep, sa, wrap / 0.32);
+  else if (wrap < 0.58) pigment = lerpRGB(sa, em, (wrap - 0.32) / 0.26);
+  else pigment = lerpRGB(em, ta, Math.min(1, (wrap - 0.58) / 0.42));
+
+  if (kind === "heart" || heartAmt > 0.28) {
+    pigment = lerpRGB(pigment, el, constrain(0.58 + heartAmt * 0.42, 0, 1));
+    pigment = lerpRGB(pigment, ta, spec * 0.50);
+  } else if (kind === "coral" || coralAmt > 0.22) {
+    pigment = lerpRGB(pigment, el, 0.32 + coralAmt * 0.28);
+    pigment = lerpRGB(pigment, ta, 0.26 + spec * 0.50);
+  }
+
+  const s = 0.22 + wrap * 0.88;
+  let r = pigment.r * s, g = pigment.g * s, b = pigment.b * s;
+  const fr = lerpRGB({ r, g, b }, sa, fresnel * 0.16);
+  r = fr.r + spec * 255;
+  g = fr.g + spec * 220;
+  b = fr.b + spec * 175;
+  const rim = Math.max(0, 1 - Math.max(nz, 0)) * 0.12;
+  const rimC = lerpRGB({ r, g, b }, ta, rim);
+  return {
+    r: constrain(rimC.r, 0, 255),
+    g: constrain(rimC.g, 0, 255),
+    b: constrain(rimC.b, 0, 255)
+  };
+}
+
+function renderOrganicVolume(g, blobs, heartPigment, opts) {
+  opts = opts || {};
+  const W = g.width;
+  const H = g.height;
+  const aspect = W / H;
+  const centered = !!opts.centered;
+  const z0 = opts.z0 != null ? opts.z0 : 0.26;
+  const dz = opts.dz != null ? opts.dz : 0.022;
+  const zCount = opts.zCount != null ? opts.zCount : 16;
+  g.clear();
+  g.loadPixels();
+  const px = g.pixels;
+  const n = blobs.length;
+  const bx = new Float32Array(n);
+  const by = new Float32Array(n);
+  const bz = new Float32Array(n);
+  const irx2 = new Float32Array(n);
+  const iry2 = new Float32Array(n);
+  const irz2 = new Float32Array(n);
+  const rmax = new Float32Array(n);
+  const kinds = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const u = blobs[i];
+    bx[i] = u.x; by[i] = u.y; bz[i] = u.z;
+    irx2[i] = 1 / (u.rx * u.rx);
+    iry2[i] = 1 / (u.ry * u.ry);
+    irz2[i] = 1 / (u.rz * u.rz);
+    rmax[i] = Math.max(u.rx, u.ry, u.rz);
+    kinds[i] = u.kind;
+  }
+
+  const THRESH = 1.08;
+  const kx = KEY_L.x, ky = KEY_L.y, kz = KEY_L.z;
+  const fx = FILL_L.x, fy = FILL_L.y, fz = FILL_L.z;
+
+  const fieldAt = (px, py, pz, ids) => {
+    let f = 0, best = ids[0], bestf = 0, heartF = 0, coralF = 0;
+    for (let k = 0; k < ids.length; k++) {
+      const i = ids[k];
+      const dx = px - bx[i], dy = py - by[i], dzv = pz - bz[i];
+      const q = dx * dx * irx2[i] + dy * dy * iry2[i] + dzv * dzv * irz2[i];
+      const v = 1 / (q + 0.00022);
+      f += v;
+      if (kinds[i] === "heart") heartF += v;
+      else if (kinds[i] === "coral") coralF += v;
+      if (v > bestf) { bestf = v; best = i; }
+    }
+    return { f, best, heartF, coralF };
+  };
+
+  for (let j = 0; j < H; j++) {
+    const yRow = centered ? (j / (H - 1) - 0.5) * 2 : j / (H - 1);
+    const ids = [];
+    for (let i = 0; i < n; i++) {
+      if (Math.abs(by[i] - yRow) < rmax[i] * 2.6) ids.push(i);
+    }
+    for (let i = 0; i < W; i++) {
+      const o = (j * W + i) * 4;
+      px[o] = 0; px[o + 1] = 0; px[o + 2] = 0; px[o + 3] = 0;
+      if (!ids.length) continue;
+      const x = centered ? (i / (W - 1) - 0.5) * 2 : (i / (W - 1) - 0.5) * aspect;
+      let minq = 99;
+      for (let k = 0; k < ids.length; k++) {
+        const ii = ids[k];
+        const dx = x - bx[ii], dy = yRow - by[ii];
+        const q = dx * dx * irx2[ii] + dy * dy * iry2[ii];
+        if (q < minq) minq = q;
+      }
+      if (minq > 2.4) continue;
+
+      let hitZ = null, hitI = -1;
+      for (let s = 0; s < zCount; s++) {
+        const z = z0 - s * dz;
+        const hit = fieldAt(x, yRow, z, ids);
+        if (hit.f >= THRESH) { hitZ = z; hitI = s; break; }
+      }
+      if (hitZ === null) continue;
+
+      let zNear = hitI > 0 ? z0 - (hitI - 1) * dz : hitZ + dz;
+      let zFar = hitZ;
+      for (let b = 0; b < 4; b++) {
+        const zm = 0.5 * (zNear + zFar);
+        const hit = fieldAt(x, yRow, zm, ids);
+        if (hit.f >= THRESH) zFar = zm;
+        else zNear = zm;
+      }
+      hitZ = zFar;
+      const e = 0.008;
+      const nxv = fieldAt(x - e, yRow, hitZ, ids).f - fieldAt(x + e, yRow, hitZ, ids).f;
+      const nyv = fieldAt(x, yRow - e, hitZ, ids).f - fieldAt(x, yRow + e, hitZ, ids).f;
+      const nzv = fieldAt(x, yRow, hitZ - e, ids).f - fieldAt(x, yRow, hitZ + e, ids).f;
+      const nlen = Math.sqrt(nxv * nxv + nyv * nyv + nzv * nzv) || 1;
+      const nnx = nxv / nlen, nny = nyv / nlen, nnz = nzv / nlen;
+      const ndotl = Math.max(0, nnx * kx + nny * ky + nnz * kz);
+      const fillv = Math.max(0, nnx * fx + nny * fy + nnz * fz) * 0.34;
+      const wrap = ndotl * 0.55 + fillv + 0.26;
+      const spec = Math.pow(ndotl, 7) * 1.05;
+      const fresnel = Math.pow(1 - Math.max(0, nnz), 1.45);
+      const res = fieldAt(x, yRow, hitZ - 0.006, ids);
+      const col = shadeSculpt(
+        ndotl, spec, wrap, fresnel, nnz, kinds[res.best],
+        res.heartF / Math.max(res.f, 0.001),
+        res.coralF / Math.max(res.f, 0.001),
+        heartPigment
+      );
+      px[o] = col.r;
+      px[o + 1] = col.g;
+      px[o + 2] = col.b;
+      px[o + 3] = 255;
+    }
+  }
+  g.updatePixels();
+  return g;
+}
+
+function growCoralBlobs(blobs, ox, oy, oz, ang, pitch, length, rad, gen, spread, rng, kind) {
+  let x = ox, y = oy, z = oz, a = ang, p = pitch;
+  const knd = kind || "coral";
+  const segs = 6;
+  for (let i = 0; i < segs; i++) {
+    a += (rng() - 0.5) * 0.42 * spread;
+    p += (rng() - 0.5) * 0.28 * spread;
+    const step = length / segs;
+    const nx = x + Math.cos(a) * Math.cos(p) * step;
+    const ny = y + Math.sin(a) * Math.cos(p) * step;
+    const nz = z + Math.sin(p) * step;
+    const t = (i + 0.5) / segs;
+    const r = lerp(rad, rad * 0.40, t);
+    blobs.push(ellipBlob(nx, ny, nz, r, r, r, knd));
+    x = nx; y = ny; z = nz;
+  }
+  if (gen > 0) {
+    for (const sign of [-1, 1]) {
+      const da = sign * (0.38 + rng() * 0.40) * spread;
+      growCoralBlobs(blobs, x, y, z, a + da, p + sign * 0.16, length * 0.66, rad * 0.60, gen - 1, spread, rng, knd);
+    }
+  }
+}
+
+function buildBodyBlobs() {
+  const b = [];
+  b.push(ellipBlob(0.00, 0.070, 0.018, 0.064, 0.068, 0.062));
+  b.push(ellipBlob(0.010, 0.092, 0.040, 0.048, 0.044, 0.050));
+  b.push(ellipBlob(0.00, 0.118, 0.014, 0.040, 0.028, 0.038));
+  b.push(ellipBlob(0.00, 0.040, 0.000, 0.054, 0.028, 0.052));
+  b.push(...capsuleBlobs(0.00, 0.122, 0.012, 0.00, 0.172, 0.010, 0.028, 0.032, 6));
+  b.push(ellipBlob(-0.110, 0.208, 0.012, 0.054, 0.046, 0.050));
+  b.push(ellipBlob( 0.110, 0.208, 0.012, 0.054, 0.046, 0.050));
+  b.push(...capsuleBlobs(-0.02, 0.196, 0.014, -0.110, 0.208, 0.012, 0.044, 0.052, 5));
+  b.push(...capsuleBlobs( 0.02, 0.196, 0.014,  0.110, 0.208, 0.012, 0.044, 0.052, 5));
+  b.push(ellipBlob(0.00, 0.238, 0.024, 0.102, 0.074, 0.074));
+  b.push(ellipBlob(-0.042, 0.258, 0.050, 0.056, 0.052, 0.050));
+  b.push(ellipBlob( 0.042, 0.258, 0.050, 0.056, 0.052, 0.050));
+  b.push(ellipBlob(0.00, 0.315, 0.030, 0.090, 0.066, 0.066));
+  b.push(ellipBlob(0.00, 0.372, 0.038, 0.076, 0.060, 0.060));
+  b.push(ellipBlob(0.00, 0.392, 0.058, 0.052, 0.044, 0.042));
+  b.push(ellipBlob(0.00, 0.428, 0.026, 0.082, 0.052, 0.056));
+  b.push(ellipBlob(0.00, 0.478, 0.016, 0.098, 0.060, 0.064));
+  b.push(ellipBlob(-0.062, 0.500, 0.008, 0.056, 0.052, 0.052));
+  b.push(ellipBlob( 0.062, 0.500, 0.008, 0.056, 0.052, 0.052));
+  b.push(ellipBlob(0.00, 0.508, -0.016, 0.072, 0.042, 0.042));
+  b.push(...capsuleBlobs(-0.128, 0.230, 0.008, -0.168, 0.368, 0.012, 0.038, 0.028, 9));
+  b.push(...capsuleBlobs(-0.168, 0.368, 0.012, -0.188, 0.512, 0.024, 0.028, 0.020, 9));
+  b.push(ellipBlob(-0.192, 0.544, 0.032, 0.028, 0.036, 0.018));
+  b.push(ellipBlob(-0.196, 0.568, 0.044, 0.018, 0.016, 0.014));
+  b.push(...capsuleBlobs( 0.128, 0.230, 0.008,  0.168, 0.368, 0.012, 0.038, 0.028, 9));
+  b.push(...capsuleBlobs( 0.168, 0.368, 0.012,  0.188, 0.512, 0.024, 0.028, 0.020, 9));
+  b.push(ellipBlob( 0.192, 0.544, 0.032, 0.028, 0.036, 0.018));
+  b.push(ellipBlob( 0.196, 0.568, 0.044, 0.018, 0.016, 0.014));
+  b.push(...capsuleBlobs(-0.052, 0.532, 0.012, -0.060, 0.708, 0.006, 0.054, 0.038, 10));
+  b.push(ellipBlob(-0.060, 0.724, 0.020, 0.038, 0.034, 0.036));
+  b.push(...capsuleBlobs(-0.060, 0.738, 0.008, -0.054, 0.890, 0.002, 0.036, 0.024, 10));
+  b.push(ellipBlob(-0.052, 0.938, 0.040, 0.034, 0.018, 0.062));
+  b.push(ellipBlob(-0.050, 0.956, 0.074, 0.026, 0.014, 0.042));
+  b.push(...capsuleBlobs( 0.052, 0.532, 0.012,  0.060, 0.708, 0.006, 0.054, 0.038, 10));
+  b.push(ellipBlob( 0.060, 0.724, 0.020, 0.038, 0.034, 0.036));
+  b.push(...capsuleBlobs( 0.060, 0.738, 0.008,  0.054, 0.890, 0.002, 0.036, 0.024, 10));
+  b.push(ellipBlob( 0.054, 0.938, 0.040, 0.034, 0.018, 0.062));
+  b.push(ellipBlob( 0.052, 0.956, 0.074, 0.026, 0.014, 0.042));
+
+  const rng = mulberry32(11);
+  const seeds = [
+    [ 0.00, 0.018, 0.048, -Math.PI / 2, 0.70, 0.088, 0.018, 2, 0.82],
+    [-0.036, 0.032, 0.028, -2.15, 0.50, 0.062, 0.016, 2, 0.72],
+    [ 0.036, 0.030, 0.028, -1.00, 0.50, 0.062, 0.016, 2, 0.72],
+    [-0.055, 0.148, 0.022, -2.50, 0.48, 0.060, 0.016, 2, 0.68],
+    [ 0.055, 0.148, 0.022, -0.65, 0.48, 0.060, 0.016, 2, 0.68],
+    [-0.132, 0.208, 0.034, -2.95, 0.62, 0.080, 0.018, 2, 0.72],
+    [ 0.132, 0.208, 0.034, -0.20, 0.62, 0.080, 0.018, 2, 0.72],
+    [-0.098, 0.326, 0.048,  2.75, 0.55, 0.070, 0.017, 2, 0.60],
+    [ 0.098, 0.326, 0.048,  0.40, 0.55, 0.070, 0.017, 2, 0.60],
+    [-0.080, 0.496, 0.024,  2.55, 0.45, 0.064, 0.016, 2, 0.54],
+    [ 0.080, 0.496, 0.024,  0.60, 0.45, 0.064, 0.016, 2, 0.54],
+    [-0.064, 0.723, 0.022,  2.45, 0.38, 0.054, 0.015, 2, 0.50],
+    [ 0.064, 0.723, 0.022,  0.70, 0.38, 0.054, 0.015, 2, 0.50],
+    [-0.054, 0.883, 0.020,  2.25, 0.32, 0.042, 0.013, 1, 0.42],
+    [ 0.054, 0.883, 0.020,  0.90, 0.32, 0.042, 0.013, 1, 0.42]
+  ];
+  for (const s of seeds) growCoralBlobs(b, s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7], s[8], rng, "coral");
+  return b;
+}
+
+function buildHeartBlobs() {
+  const b = [];
+  b.push(ellipBlob( 0.00,  0.04,  0.04, 0.40, 0.36, 0.38, "heart"));
+  b.push(ellipBlob(-0.22, -0.08,  0.12, 0.32, 0.30, 0.32, "heart"));
+  b.push(ellipBlob( 0.20, -0.06,  0.10, 0.30, 0.28, 0.30, "heart"));
+  b.push(ellipBlob(-0.04,  0.18,  0.06, 0.28, 0.26, 0.26, "heart"));
+  b.push(ellipBlob( 0.04, -0.22,  0.16, 0.22, 0.20, 0.22, "heart"));
+  b.push(ellipBlob(-0.08,  0.02,  0.22, 0.20, 0.18, 0.20, "heart"));
+  b.push(...capsuleBlobs(-0.06, 0.28, 0.06, -0.14, 0.58, -0.04, 0.12, 0.055, 8, "heart"));
+  b.push(...capsuleBlobs( 0.10, 0.26, 0.05,  0.18, 0.54, -0.03, 0.11, 0.050, 8, "heart"));
+  b.push(...capsuleBlobs(-0.16,-0.16, 0.12, -0.34,-0.42,  0.02, 0.10, 0.048, 7, "heart"));
+  b.push(...capsuleBlobs( 0.18,-0.12, 0.10,  0.36,-0.38,  0.00, 0.095, 0.046, 7, "heart"));
+  b.push(...capsuleBlobs(-0.24, 0.06, 0.08, -0.52, 0.22, -0.02, 0.088, 0.042, 6, "heart"));
+  b.push(...capsuleBlobs( 0.26, 0.04, 0.06,  0.50, 0.18, -0.02, 0.084, 0.040, 6, "heart"));
+  return b;
+}
+
 /* =========================================================
-   ANIMATED BODY
+   CUERPO = escultura volumétrica 3D
 ========================================================= */
 
 class AnimatedBody {
@@ -867,11 +1130,10 @@ class AnimatedBody {
     this.mirror = mirror;
     this.phase = phase;
 
-    const aspect = bodyRefImg.width / bodyRefImg.height;
-    let h = min(height * 0.90, 1080);
-    let w = h * aspect;
-    const maxW = width * 0.58;
-    if (w > maxW) { w = maxW; h = w / aspect; }
+    let h = min(height * 0.92, 1100);
+    let w = h * BODY_ASPECT;
+    const maxW = width * 0.62;
+    if (w > maxW) { w = maxW; h = w / BODY_ASPECT; }
 
     this.bodyW = w;
     this.bodyH = h;
@@ -880,46 +1142,18 @@ class AnimatedBody {
     this.buildFibers();
     this.buildHeartVolume();
     this.buildCoral();
-    this.buildMasses();
   }
 
   buildMaster() {
-    const g = createGraphics(floor(this.bodyW), floor(this.bodyH));
-    g.pixelDensity(1);
-    g.clear();
-    g.imageMode(CORNER);
-    g.image(bodyRefImg, 0, 0, g.width, g.height);
-    g.loadPixels();
-    if (bodyRefImg.pixels.length < 4) bodyRefImg.loadPixels();
-    const skyR = bodyRefImg.pixels[0];
-    const skyG = bodyRefImg.pixels[1];
-    const skyB = bodyRefImg.pixels[2];
-    const lim = 42 * 42 * 3;
-    const px = g.pixels;
-    const n = g.width * g.height;
-    const mw = g.width;
-    const mh = g.height;
-    for (let i = 0; i < n; i++) {
-      const o = i * 4;
-      const dr = px[o] - skyR;
-      const dg = px[o + 1] - skyG;
-      const db = px[o + 2] - skyB;
-      if (dr * dr + dg * dg + db * db < lim) {
-        px[o + 3] = 0;
-        continue;
-      }
-      const lx = i % mw;
-      const ly = floor(i / mw);
-      const nx = lx / mw;
-      const ny = ly / mh;
-      const lum = (0.299 * px[o] + 0.587 * px[o + 1] + 0.114 * px[o + 2]) / 255;
-      const pal = PALETTE_RGB[pickBodyPaletteIndex(px[o], px[o + 1], px[o + 2], nx, ny)];
-      const col = shadePaletteColor(pal, lum);
-      px[o]     = constrain(col.r, 0, 255);
-      px[o + 1] = constrain(col.g, 0, 255);
-      px[o + 2] = constrain(col.b, 0, 255);
+    if (cachedBodyVolume) {
+      this.master = cachedBodyVolume;
+      this.acrylic = cachedBodyVolume;
+      return;
     }
-    g.updatePixels();
+    const g = createGraphics(VOL_W, VOL_H);
+    g.pixelDensity(1);
+    renderOrganicVolume(g, buildBodyBlobs(), heartRGB);
+    cachedBodyVolume = g;
     this.master = g;
     this.acrylic = g;
   }
@@ -956,7 +1190,13 @@ class AnimatedBody {
       if (density < FIBER_DENSITY_MIN) continue;
       if (random(255) > density * FIBER_ACCEPT_GAIN) continue;
 
-      samples.push({ lx, ly, density, r, g, b });
+      const sx = this.bodyW / mw;
+      const sy = this.bodyH / mh;
+      samples.push({
+        lx: lx * sx,
+        ly: ly * sy,
+        density, r, g, b
+      });
     }
 
     const total = samples.length;
@@ -985,6 +1225,8 @@ class AnimatedBody {
     if (bodyBaseAlpha <= 0.001) return;
     const ctx = drawingContext;
     ctx.save();
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
     ctx.globalAlpha = bodyBaseAlpha;
     ctx.translate(this.cx, this.cy);
     ctx.translate(-this.bodyW * 0.5, -this.bodyH * 0.5);
@@ -1005,99 +1247,50 @@ class AnimatedBody {
   }
 
   buildCoral() {
+    // El coral del cuerpo ya está horneado en el volumen 3D.
+    // Acá sólo las venas que nacen del corazón, para que pulsen con él.
     this.coral = [];
-    const seeds = [
-      { nx: 0.47, ny: 0.07, ang: -1.95, len: 0.11, gen: 4, spread: 0.95 },
-      { nx: 0.54, ny: 0.08, ang: -1.22, len: 0.11, gen: 4, spread: 0.95 },
-      { nx: 0.40, ny: 0.17, ang: -2.45, len: 0.09, gen: 3, spread: 0.75 },
-      { nx: 0.63, ny: 0.18, ang: -0.62, len: 0.09, gen: 3, spread: 0.75 },
-      { nx: 0.34, ny: 0.26, ang: -2.75, len: 0.08, gen: 3, spread: 0.65 },
-      { nx: 0.70, ny: 0.27, ang: -0.38, len: 0.08, gen: 3, spread: 0.65 },
-      { nx: 0.50, ny: 0.21, ang: -1.58, len: 0.06, gen: 3, spread: 0.55 },
-      { nx: 0.39, ny: 0.47, ang:  2.45, len: 0.07, gen: 3, spread: 0.58 },
-      { nx: 0.61, ny: 0.47, ang:  0.68, len: 0.07, gen: 3, spread: 0.58 },
-      { nx: 0.41, ny: 0.66, ang:  2.70, len: 0.075, gen: 3, spread: 0.52 },
-      { nx: 0.59, ny: 0.68, ang:  0.42, len: 0.075, gen: 3, spread: 0.52 },
-      { nx: 0.44, ny: 0.88, ang:  2.15, len: 0.05, gen: 3, spread: 0.45 },
-      { nx: 0.56, ny: 0.90, ang:  0.95, len: 0.05, gen: 3, spread: 0.45 },
-      { nx: HEART_NX, ny: HEART_NY, ang:  2.35, len: 0.055, gen: 3, spread: 0.62, fromHeart: true },
-      { nx: HEART_NX, ny: HEART_NY, ang:  0.85, len: 0.055, gen: 3, spread: 0.62, fromHeart: true },
-      { nx: HEART_NX, ny: HEART_NY + 0.03, ang:  1.55, len: 0.07, gen: 3, spread: 0.50, fromHeart: true },
-      { nx: HEART_NX - 0.04, ny: HEART_NY, ang: -2.55, len: 0.05, gen: 3, spread: 0.55, fromHeart: true },
-      { nx: HEART_NX + 0.04, ny: HEART_NY, ang: -0.55, len: 0.05, gen: 3, spread: 0.55, fromHeart: true }
-    ];
-    for (const s of seeds) {
-      this.growCoral(
-        s.nx * this.bodyW, s.ny * this.bodyH,
-        s.ang, this.bodyH * s.len, 0, s.gen, s.spread, s.fromHeart
-      );
-    }
-  }
-
-  growCoral(x, y, ang, len, depth, maxDepth, spread, fromHeart) {
-    if (depth >= maxDepth || len < 2.5) return;
-    const segs = 4 + floor(random(4));
-    const pts = [{ x, y }];
-    let px = x, py = y, a = ang;
-    for (let i = 0; i < segs; i++) {
-      a += random(-0.32, 0.32) * spread;
-      px += Math.cos(a) * (len / segs);
-      py += Math.sin(a) * (len / segs);
-      pts.push({ x: px, y: py });
-    }
-    const palI = depth === 0
-      ? (random() < 0.45 ? 2 : (random() < 0.5 ? 1 : 0))
-      : floor(random(PALETTE_RGB.length));
-    const pal = PALETTE_RGB[palI];
-    const color = fromHeart
-      ? {
-          r: lerp(pal.r, heartRGB.r, 0.72),
-          g: lerp(pal.g, heartRGB.g, 0.72),
-          b: lerp(pal.b, heartRGB.b, 0.72)
-        }
-      : pal;
-    this.coral.push({
-      pts,
-      w: lerp(2.6, 0.32, depth / maxDepth),
-      color,
-      depth,
-      fromHeart: !!fromHeart
-    });
-    const splits = depth < 2 ? 2 : (random() < 0.7 ? 2 : 1);
-    for (let k = 0; k < splits; k++) {
-      const da = (k === 0 ? -1 : 1) * random(0.32, 0.88) * spread;
-      this.growCoral(px, py, a + da, len * random(0.52, 0.74), depth + 1, maxDepth, spread, fromHeart);
-    }
-  }
-
-  buildMasses() {
-    this.masses = [
-      { nx: 0.38, ny: 0.255, rx: 0.042, ry: 0.032, pal: 1 },
-      { nx: 0.66, ny: 0.255, rx: 0.042, ry: 0.032, pal: 0 },
-      { nx: 0.49, ny: 0.375, rx: 0.048, ry: 0.036, pal: 5 },
-      { nx: 0.42, ny: 0.455, rx: 0.038, ry: 0.030, pal: 3 },
-      { nx: 0.58, ny: 0.455, rx: 0.038, ry: 0.030, pal: 2 }
-    ];
+    const rng = mulberry32(23);
+    const grow = (x, y, ang, len, rad, depth, maxD) => {
+      if (depth >= maxD || len < 4) return;
+      const pts = [{ x, y, r: rad }];
+      let px = x, py = y, a = ang;
+      const segs = 5;
+      for (let i = 0; i < segs; i++) {
+        a += (rng() - 0.5) * 0.55;
+        px += Math.cos(a) * (len / segs);
+        py += Math.sin(a) * (len / segs);
+        pts.push({ x: px, y: py, r: lerp(rad, rad * 0.42, (i + 1) / segs) });
+      }
+      this.coral.push({ pts, fromHeart: true, depth });
+      if (depth < maxD - 1) {
+        grow(px, py, a - 0.52, len * 0.62, rad * 0.58, depth + 1, maxD);
+        grow(px, py, a + 0.52, len * 0.62, rad * 0.58, depth + 1, maxD);
+      }
+    };
+    const hx = this.bodyW * HEART_NX;
+    const hy = this.bodyH * HEART_NY;
+    grow(hx, hy, 2.35, this.bodyH * 0.07, this.bodyH * 0.013, 0, 3);
+    grow(hx, hy, 0.85, this.bodyH * 0.07, this.bodyH * 0.013, 0, 3);
+    grow(hx, hy + this.bodyH * 0.02, 1.55, this.bodyH * 0.08, this.bodyH * 0.012, 0, 3);
+    grow(hx - this.bodyW * 0.03, hy, -2.55, this.bodyH * 0.055, this.bodyH * 0.011, 0, 3);
+    grow(hx + this.bodyW * 0.03, hy, -0.55, this.bodyH * 0.055, this.bodyH * 0.011, 0, 3);
   }
 
   drawMasses(alpha) {
     if (alpha < 0.02) return;
     const ctx = drawingContext;
+    const feet = this.toWorld(this.bodyW * 0.5, this.bodyH * 0.97, 0);
+    const rx = this.bodyW * 0.20;
+    const ry = this.bodyH * 0.028;
     ctx.save();
-    for (const m of this.masses) {
-      const c = this.toWorld(m.nx * this.bodyW, m.ny * this.bodyH, 0);
-      const pal = PALETTE_RGB[m.pal];
-      const rx = this.bodyW * m.rx;
-      const ry = this.bodyH * m.ry;
-      const grd = ctx.createRadialGradient(c.x - rx * 0.25, c.y - ry * 0.3, 0, c.x, c.y, Math.max(rx, ry));
-      grd.addColorStop(0, `rgba(${Math.min(255, pal.r + 40)},${Math.min(255, pal.g + 28)},${Math.min(255, pal.b + 18)},${0.42 * alpha})`);
-      grd.addColorStop(0.65, `rgba(${pal.r},${pal.g},${pal.b},${0.22 * alpha})`);
-      grd.addColorStop(1, `rgba(${pal.r},${pal.g},${pal.b},0)`);
-      ctx.fillStyle = grd;
-      ctx.beginPath();
-      ctx.ellipse(c.x, c.y, rx, ry, 0, 0, Math.PI * 2);
-      ctx.fill();
-    }
+    const grd = ctx.createRadialGradient(feet.x, feet.y, 0, feet.x, feet.y, rx);
+    grd.addColorStop(0, `rgba(8, 24, 48, ${0.40 * alpha})`);
+    grd.addColorStop(1, "rgba(8, 24, 48, 0)");
+    ctx.fillStyle = grd;
+    ctx.beginPath();
+    ctx.ellipse(feet.x, feet.y + this.bodyH * 0.012, rx, ry, 0, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
   }
 
@@ -1105,20 +1298,23 @@ class AnimatedBody {
     if (alpha < 0.02 || !this.coral) return;
     const ctx = drawingContext;
     ctx.save();
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
+    const pulse = 1 + heartbeatPulseValue * 0.22;
     for (const br of this.coral) {
-      const pulseMul = br.fromHeart ? (1 + heartbeatPulseValue * 0.28) : 1;
-      const a = alpha * lerp(0.62, 0.20, br.depth / 4) * pulseMul;
-      ctx.strokeStyle = `rgba(${br.color.r},${br.color.g},${br.color.b},${a})`;
-      ctx.lineWidth = br.w;
-      ctx.beginPath();
-      for (let i = 0; i < br.pts.length; i++) {
-        const w = this.toWorld(br.pts[i].x, br.pts[i].y, 0);
-        if (i === 0) ctx.moveTo(w.x, w.y);
-        else ctx.lineTo(w.x, w.y);
+      for (const p of br.pts) {
+        const w = this.toWorld(p.x, p.y, 0);
+        const r = Math.max(1.2, p.r * pulse);
+        const hx = w.x - r * 0.38;
+        const hy = w.y - r * 0.48;
+        const grd = ctx.createRadialGradient(hx, hy, 0, w.x, w.y, r);
+        const a = alpha * (0.58 + heartbeatPulseValue * 0.28);
+        grd.addColorStop(0, `rgba(${Math.min(255, heartRGB.r + 48)},${Math.min(255, heartRGB.g + 18)},${Math.min(255, heartRGB.b + 8)},${a})`);
+        grd.addColorStop(0.42, `rgba(${heartRGB.r},${heartRGB.g},${heartRGB.b},${a * 0.88})`);
+        grd.addColorStop(1, `rgba(${C.ocagyu.r},${C.ocagyu.g},${C.ocagyu.b},0)`);
+        ctx.fillStyle = grd;
+        ctx.beginPath();
+        ctx.arc(w.x, w.y, r, 0, Math.PI * 2);
+        ctx.fill();
       }
-      ctx.stroke();
     }
     ctx.restore();
   }
@@ -1132,16 +1328,17 @@ class AnimatedBody {
     const origin = this.toWorld(this.bodyW * HEART_NX, this.bodyH * HEART_NY, 0);
     const pulse = 1 + heartbeatPulseValue * HEART_PULSE_SCALE;
     const introScale = lerp(0.94, 1, intro);
-    const size = this.bodyH * 0.168 * pulse * introScale;
+    const size = this.bodyH * 0.155 * pulse * introScale;
     const pulseGlow = appear * HEART_GLOW_ALPHA * (0.35 + heartbeatPulseValue * 0.45);
 
     const ctx = drawingContext;
     ctx.save();
+    ctx.imageSmoothingEnabled = true;
     ctx.globalCompositeOperation = "source-over";
-    ctx.translate(origin.x, origin.y + this.bodyH * 0.006);
+    ctx.translate(origin.x, origin.y + this.bodyH * 0.004);
 
     if (pulseGlow > 0.01) {
-      const gR = HEART_GLOW_RADIUS * (1.15 + heartbeatPulseValue * 0.4);
+      const gR = HEART_GLOW_RADIUS * (1.2 + heartbeatPulseValue * 0.45);
       const grd = ctx.createRadialGradient(0, 0, 0, 0, 0, gR);
       grd.addColorStop(0, `rgba(${heartRGB.r},${heartRGB.g},${heartRGB.b},${pulseGlow})`);
       grd.addColorStop(1, `rgba(${heartRGB.r},${heartRGB.g},${heartRGB.b},0)`);
@@ -1151,145 +1348,27 @@ class AnimatedBody {
       ctx.fill();
     }
 
-    ctx.globalAlpha = appear * (0.82 + intro * 0.18);
+    ctx.globalAlpha = appear * (0.88 + intro * 0.12);
     const el = this.heartGfx.elt || this.heartGfx.canvas;
-    ctx.drawImage(el, -size * 0.50, -size * 0.46, size, size);
+    ctx.drawImage(el, -size * 0.50, -size * 0.48, size, size);
     ctx.restore();
   }
 
   buildHeartVolume() {
-    const S = 196;
+    if (cachedHeartVolume) {
+      this.heartGfx = cachedHeartVolume;
+      return;
+    }
+    const S = 200;
     const g = createGraphics(S, S);
     g.pixelDensity(1);
-    g.clear();
-    g.loadPixels();
-    const px = g.pixels;
-
-    const pigment = {
-      r: lerp(PALETTE_RGB[4].r, heartRGB.r, 0.78),
-      g: lerp(PALETTE_RGB[4].g, heartRGB.g, 0.78),
-      b: lerp(PALETTE_RGB[4].b, heartRGB.b, 0.78)
-    };
-    const shadow = PALETTE_RGB[3];
-    const accent = PALETTE_RGB[5];
-
-    const blobs = [
-      { x:  0.00, y:  0.08, z:  0.04, r: 0.40 },
-      { x: -0.20, y: -0.10, z:  0.12, r: 0.34 },
-      { x:  0.18, y: -0.08, z:  0.10, r: 0.32 },
-      { x: -0.02, y: -0.02, z:  0.26, r: 0.24 },
-      { x:  0.06, y:  0.22, z:  0.08, r: 0.27 },
-      { x: -0.16, y:  0.22, z: -0.02, r: 0.20 },
-      { x:  0.22, y:  0.16, z: -0.04, r: 0.18 },
-      { x:  0.00, y: -0.26, z:  0.14, r: 0.19 },
-      { x: -0.30, y:  0.04, z:  0.06, r: 0.15 },
-      { x:  0.28, y:  0.00, z:  0.04, r: 0.14 },
-      { x: -0.08, y:  0.32, z:  0.02, r: 0.16 },
-      { x:  0.10, y:  0.34, z:  0.00, r: 0.15 }
-    ];
-
-    const tubes = [
-      { a: [-0.04, 0.30, 0.04], b: [-0.10, 0.52, -0.06], c: [-0.02, 0.78, -0.14], r: 0.095 },
-      { a: [ 0.10, 0.28, 0.03], b: [ 0.16, 0.50, -0.05], c: [ 0.08, 0.76, -0.12], r: 0.085 },
-      { a: [-0.28, 0.06, 0.04], b: [-0.50, 0.20, -0.02], c: [-0.44, 0.42, -0.08], r: 0.072 },
-      { a: [ 0.26, 0.02, 0.03], b: [ 0.48, 0.16, -0.02], c: [ 0.42, 0.38, -0.07], r: 0.070 },
-      { a: [-0.12,-0.18, 0.10], b: [-0.22,-0.38, 0.02], c: [-0.18,-0.52,-0.04], r: 0.060 },
-      { a: [ 0.14,-0.16, 0.08], b: [ 0.26,-0.34, 0.00], c: [ 0.22,-0.50,-0.05], r: 0.058 }
-    ];
-    for (const t of tubes) {
-      for (let k = 0; k <= 9; k++) {
-        const u = k / 9;
-        const u1 = 1 - u;
-        blobs.push({
-          x: u1 * u1 * t.a[0] + 2 * u1 * u * t.b[0] + u * u * t.c[0],
-          y: u1 * u1 * t.a[1] + 2 * u1 * u * t.b[1] + u * u * t.c[1],
-          z: u1 * u1 * t.a[2] + 2 * u1 * u * t.b[2] + u * u * t.c[2],
-          r: t.r * lerp(1.0, 0.42, u)
-        });
-      }
-    }
-
-    const THRESH = 1.18;
-    const lLen = Math.sqrt(
-      BALL_LIGHT_X * BALL_LIGHT_X +
-      BALL_LIGHT_Y * BALL_LIGHT_Y +
-      BALL_LIGHT_Z * BALL_LIGHT_Z
-    );
-    const lx = BALL_LIGHT_X / lLen;
-    const ly = BALL_LIGHT_Y / lLen;
-    const lz = BALL_LIGHT_Z / lLen;
-
-    const fieldAt = (x, y, z) => {
-      let f = 0;
-      for (let n = 0; n < blobs.length; n++) {
-        const b = blobs[n];
-        const dx = x - b.x, dy = y - b.y, dz = z - b.z;
-        f += (b.r * b.r) / (dx * dx + dy * dy + dz * dz + 0.00025);
-      }
-      return f;
-    };
-
-    for (let j = 0; j < S; j++) {
-      const y = (j / (S - 1)) * 2 - 1;
-      for (let i = 0; i < S; i++) {
-        const x = (i / (S - 1)) * 2 - 1;
-        let minD = 99;
-        for (let n = 0; n < blobs.length; n++) {
-          const b = blobs[n];
-          const d = Math.hypot(x - b.x, y - b.y) - b.r;
-          if (d < minD) minD = d;
-        }
-        if (minD > 0.14) continue;
-
-        let hitZ = null;
-        for (let s = 0; s < 11; s++) {
-          const z = 0.70 - s * 0.13;
-          if (fieldAt(x, y, z) >= THRESH) { hitZ = z; break; }
-        }
-        if (hitZ === null) continue;
-
-        const e = 0.018;
-        const fx1 = fieldAt(x + e, y, hitZ);
-        const fx0 = fieldAt(x - e, y, hitZ);
-        const fy1 = fieldAt(x, y + e, hitZ);
-        const fy0 = fieldAt(x, y - e, hitZ);
-        const fz1 = fieldAt(x, y, hitZ + e);
-        const fz0 = fieldAt(x, y, hitZ - e);
-        let nx = fx0 - fx1;
-        let ny = fy0 - fy1;
-        let nz = fz0 - fz1;
-        const nlen = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
-        nx /= nlen; ny /= nlen; nz /= nlen;
-
-        const ndotl = Math.max(0, nx * lx + ny * ly + nz * lz);
-        const wrap = ndotl * 0.55 + 0.45;
-        const spec = Math.pow(ndotl, 16) * 0.62;
-        const fresnel = Math.pow(1 - Math.max(0, nz), 1.55);
-
-        const shade = 0.16 + wrap * 0.78;
-        let cr = lerp(shadow.r * 0.40, pigment.r, shade);
-        let cg = lerp(shadow.g * 0.40, pigment.g, shade);
-        let cb = lerp(shadow.b * 0.40, pigment.b, shade);
-        cr = lerp(cr, accent.r, fresnel * 0.18);
-        cg = lerp(cg, accent.g, fresnel * 0.18);
-        cb = lerp(cb, accent.b, fresnel * 0.18);
-        cr = Math.min(255, cr + spec * 210);
-        cg = Math.min(255, cg + spec * 190);
-        cb = Math.min(255, cb + spec * 165);
-
-        const dens = fieldAt(x, y, hitZ);
-        const edge = constrain((dens - THRESH) / 0.9, 0, 1);
-        const a = Math.floor(255 * Math.pow(edge, 0.48));
-
-        const o = (j * S + i) * 4;
-        px[o] = cr;
-        px[o + 1] = cg;
-        px[o + 2] = cb;
-        px[o + 3] = a;
-      }
-    }
-
-    g.updatePixels();
+    renderOrganicVolume(g, buildHeartBlobs(), heartRGB, {
+      centered: true,
+      z0: 0.58,
+      dz: 0.038,
+      zCount: 18
+    });
+    cachedHeartVolume = g;
     this.heartGfx = g;
   }
 }
@@ -1746,7 +1825,7 @@ function drawTitle() {
   push();
   drawingContext.globalCompositeOperation = "source-over";
   noStroke();
-  fill(215, 210, 200, 90);
+  fill(255, 196, 150, 110);
   textAlign(CENTER, CENTER);
   textFont("monospace");
   textSize(13);
