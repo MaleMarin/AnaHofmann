@@ -31,7 +31,6 @@
   crumbs.push({ href: "/", label: "Ana Hofmann", current: onHome });
 
   if (pieceIdx >= 0) {
-    crumbs.push({ href: "/#codigo", label: "código", current: false });
     crumbs.push({ href: PIECES[pieceIdx].href, label: PIECES[pieceIdx].label, current: true });
   } else if (onFoto) {
     crumbs.push({ href: "/fotografia/", label: "fotografía", current: true });
