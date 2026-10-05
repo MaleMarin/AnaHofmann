@@ -3,7 +3,6 @@
   const PIECES = [
     { href: "/apps/cromagenesis/", label: "Cromagénesis" },
     { href: "/apps/libelulas/", label: "Libélulas Vectoriales" },
-    { href: "/apps/anatomia-de-la-distancia/", label: "Anatomía de la Distancia" },
   ];
   const SECTIONS = [
     { href: "/", label: "código" },
