@@ -1,5 +1,5 @@
 /*
- * Anatomía de la Distancia — v700
+ * Anatomía de la Distancia — v701
  *
  * Cuerpo construido en Three.js con volúmenes reales
  * (cápsulas, elipsoides, tubos). No hay silueta 2D ni máscara.
@@ -25,12 +25,6 @@ const HEART_LUB_WIDTH    = 0.13;
 const HEART_DUB_WIDTH    = 0.13;
 const HEART_DUB_STRENGTH = 0.42;
 const HEART_PULSE_SMOOTH = 0.22;
-
-const BRANCH_DEPTH = 5;
-const BRANCH_BASE_RADIUS = 0.018;
-const BRANCH_LENGTH_DECAY = 0.72;
-const BRANCH_RADIUS_DECAY = 0.68;
-const BRANCH_SPLIT_COUNT = 2;
 
 const AUDIO_MASTER_VOL  = 0.85;
 const HEARTBEAT_BPM     = 68;
@@ -73,16 +67,6 @@ function smoothstep(e0, e1, x) {
   const t = clamp((x - e0) / (e1 - e0), 0, 1);
   return t * t * (3 - 2 * t);
 }
-function mulberry32(a) {
-  return function () {
-    a |= 0;
-    a = (a + 0x6D2B79F5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 let startMs = 0;
 let morph = 0;
 let morphSmoothed = 0;
@@ -367,8 +351,6 @@ function buildFigure() {
   heartRoot.scale.setScalar(1);
   root.add(heartRoot);
 
-  addBranches(root);
-
   return root;
 }
 
@@ -392,72 +374,6 @@ function buildHeart() {
   addCapsule(g, mat, -0.030, 0.028, 0.016, -0.072, 0.078, 0.008, 0.009);
   addCapsule(g, mat,  0.032, 0.024, 0.014,  0.070, 0.072, 0.006, 0.009);
   return g;
-}
-
-function addBranches(root) {
-  const rng = mulberry32(19);
-  const matMain = satin(PALETTE.electric, { roughness: 0.40, clearcoat: 0.20 });
-  const matSec  = satin(PALETTE.sapphire, { roughness: 0.48, clearcoat: 0.12 });
-  const matTip  = satin(heartColorToday, { roughness: 0.34, clearcoat: 0.30 });
-
-  const seeds = [
-    { p: [0.00, 1.68, 0.04], d: [0.05, 1.0, 0.35], len: 0.16, r: 0.016, depth: BRANCH_DEPTH },
-    { p: [-0.06, 1.66, 0.02], d: [-0.55, 0.7, 0.25], len: 0.12, r: 0.013, depth: 4 },
-    { p: [ 0.06, 1.66, 0.02], d: [ 0.55, 0.7, 0.25], len: 0.12, r: 0.013, depth: 4 },
-    { p: [-0.22, 1.40, 0.04], d: [-1.0, 0.15, 0.45], len: 0.14, r: BRANCH_BASE_RADIUS, depth: BRANCH_DEPTH },
-    { p: [ 0.22, 1.40, 0.04], d: [ 1.0, 0.15, 0.45], len: 0.14, r: BRANCH_BASE_RADIUS, depth: BRANCH_DEPTH },
-    { p: [-0.14, 1.22, 0.08], d: [-0.85, -0.1, 0.55], len: 0.12, r: 0.014, depth: 4 },
-    { p: [ 0.14, 1.22, 0.08], d: [ 0.85, -0.1, 0.55], len: 0.12, r: 0.014, depth: 4 },
-    { p: [-0.12, 0.94, 0.04], d: [-0.8, -0.25, 0.4], len: 0.11, r: 0.014, depth: 4 },
-    { p: [ 0.12, 0.94, 0.04], d: [ 0.8, -0.25, 0.4], len: 0.11, r: 0.014, depth: 4 },
-    { p: [-0.10, 0.50, 0.04], d: [-0.7, -0.2, 0.35], len: 0.10, r: 0.012, depth: 4 },
-    { p: [ 0.10, 0.50, 0.04], d: [ 0.7, -0.2, 0.35], len: 0.10, r: 0.012, depth: 4 },
-    { p: [-0.09, 0.18, 0.04], d: [-0.45, -0.5, 0.4], len: 0.08, r: 0.010, depth: 3 },
-    { p: [ 0.09, 0.18, 0.04], d: [ 0.45, -0.5, 0.4], len: 0.08, r: 0.010, depth: 3 }
-  ];
-
-  function grow(origin, dir, length, radius, depth) {
-    if (depth <= 0 || radius < 0.0022 || length < 0.02) return;
-    const pts = [];
-    let p = origin.clone();
-    pts.push(p.clone());
-    const segs = depth > 3 ? 6 : 4;
-    const d = dir.clone().normalize();
-    for (let i = 0; i < segs; i++) {
-      d.x += (rng() - 0.5) * 0.42;
-      d.y += (rng() - 0.5) * 0.32;
-      d.z += (rng() - 0.5) * 0.38;
-      d.normalize();
-      p = p.clone().addScaledVector(d, length / segs);
-      pts.push(p);
-    }
-    const curve = new THREE.CatmullRomCurve3(pts);
-    const mat = depth >= 4 ? matMain : (depth >= 2 ? matSec : matTip);
-    const tube = new THREE.Mesh(
-      new THREE.TubeGeometry(curve, segs * 3, radius, 7, false),
-      mat
-    );
-    tube.castShadow = true;
-    tube.receiveShadow = true;
-    root.add(tube);
-
-    const end = pts[pts.length - 1];
-    for (let k = 0; k < BRANCH_SPLIT_COUNT; k++) {
-      const nd = d.clone();
-      nd.x += (k === 0 ? -1 : 1) * (0.35 + rng() * 0.45);
-      nd.y += (rng() - 0.5) * 0.5;
-      nd.z += (rng() - 0.4) * 0.45;
-      grow(end, nd, length * BRANCH_LENGTH_DECAY, radius * BRANCH_RADIUS_DECAY, depth - 1);
-    }
-  }
-
-  for (const s of seeds) {
-    grow(
-      new THREE.Vector3(s.p[0], s.p[1], s.p[2]),
-      new THREE.Vector3(s.d[0], s.d[1], s.d[2]),
-      s.len, s.r, s.depth
-    );
-  }
 }
 
 function buildWoolBall() {
